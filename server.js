@@ -10,26 +10,42 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 let sock;
+let server;
+
+/**
+ * Clean up the auth folder to ensure a fresh session.
+ */
+function clearAuth() {
+    console.log('Clearing auth folder for a fresh session...');
+    try {
+        if (fs.existsSync(path.resolve(__dirname, 'auth'))) {
+            fs.rmSync(path.resolve(__dirname, 'auth'), { recursive: true, force: true });
+        }
+        fs.mkdirSync(path.resolve(__dirname, 'auth'));
+    } catch (err) {
+        console.error('Error clearing auth folder:', err.message);
+    }
+}
 
 async function startWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState(path.resolve(__dirname, 'auth'));
 
     const versionInfo = await fetchLatestBaileysVersion();
-    const version = Array.isArray(versionInfo) ? versionInfo[0] : (versionInfo.version || versionInfo);
+    const version = versionInfo?.version || [2, 3000, 1015901307]; // Updated fallback
+
     sock = makeWASocket({
         version,
         auth: state,
-        printQRInTerminal: false,
+        printQRInTerminal: true, // Also print in terminal for easier debugging
         qrTimeout: 60 * 1000,
-        logger: require('pino')({ level: 'debug' })
-        //logger: require('pino')({ level: 'silent' })
-
+        logger: require('pino')({ level: 'error' })
     });
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
+
         if (qr) {
             const qrPath = path.resolve(__dirname, 'public', 'qr.png');
             const QRCode = require('qrcode');
@@ -37,35 +53,68 @@ async function startWhatsApp() {
                 if (err) console.error('QR generation error', err);
             });
         }
+
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
-            console.log('connection closed due to', lastDisconnect?.error, ', reconnecting:', shouldReconnect);
-            if (shouldReconnect) startWhatsApp();
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+
+            console.log('Connection closed. Status code:', statusCode, '| Reconnecting:', shouldReconnect);
+
+            if (statusCode === 401) {
+                console.log('Detected 401 Unauthorized. Clearing session for reset.');
+                clearAuth();
+                startWhatsApp();
+            } else if (shouldReconnect) {
+                startWhatsApp();
+            }
         } else if (connection === 'open') {
-            console.log('WhatsApp connection opened');
+            console.log('WhatsApp connection opened successfully');
         }
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
         for (const msg of messages) {
-            if (!msg.message) continue;
+            if (!msg.message || msg.key.fromMe) continue;
             const from = msg.key.remoteJid;
             const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
             if (!text) continue;
+
             try {
                 const response = await runFlow(text, from);
                 if (response) {
                     await sock.sendMessage(from, { text: response });
                 }
             } catch (err) {
-                console.error('Error running flow:', err);
+                console.error('Error running flow:', err.message);
             }
         }
     });
 }
 
-startWhatsApp().catch(console.error);
+const PORT = process.env.PORT || 3000;
+server = app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+
+startWhatsApp().catch(err => {
+    console.error('Fatal startup error:', err.message);
+    if (err.message.includes('401')) {
+        clearAuth();
+        process.exit(1);
+    }
+});
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+    console.log('\nGracefully shutting down...');
+    if (sock) {
+        sock.logout().catch(() => { });
+        sock.end();
+    }
+    server.close(() => {
+        console.log('Server port closed. Goodbye!');
+        process.exit(0);
+    });
+});
 
 app.get('/qr', (req, res) => {
     const qrPath = path.resolve(__dirname, 'public', 'qr.png');
@@ -76,10 +125,6 @@ app.get('/qr', (req, res) => {
     }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
-
-// Export a getter so other modules can access the runtime socket without circular require issues
 module.exports = {
     getSock: () => sock
 };
