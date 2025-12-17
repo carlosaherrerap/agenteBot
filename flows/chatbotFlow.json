@@ -1,0 +1,24 @@
+{
+    "name": "chatbotFlow",
+    "description": "Automated conversation flow for InformaPeru WhatsApp bot",
+    "steps": [
+        {
+            "id": "greeting",
+            "type": "message",
+            "text": "Hola, te saluda InformaPeru."
+        },
+        {
+            "id": "validation",
+            "type": "conditional",
+            "condition": "!message.includes('DNI') && !message.includes('cuenta')",
+            "true": {
+                "type": "message",
+                "text": "Para verificar, necesito tu DNI o número de cuenta."
+            },
+            "false": {
+                "type": "message",
+                "text": "Validando. Elige número:\n1. Detalles deuda\n2. Descuento\n3. Oficinas\n4. Otros"
+            }
+        }
+    ]
+}
