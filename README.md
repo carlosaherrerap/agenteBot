@@ -1,13 +1,15 @@
 # InformaPeru WhatsApp Chatbot
 
-Chatbot automatizado para gestión de cobranzas utilizando WhatsApp (Baileys), Deepseek API (AI) y Gmail (Nodemailer).
+Chatbot automatizado para gestión de cobranzas utilizando WhatsApp (Baileys), **Deepseek API** (AI) y Gmail (Nodemailer).
+
+> **Nota**: Este bot utiliza **Deepseek AI** directamente (NO usa OLLAMA ni Flowise). La API key de Deepseek se configura en el archivo `.env`.
 
 ## Requisitos Previos
 
 - Node.js v18 o superior
 - Docker & Docker Compose (Opcional, para ejecución en contenedor)
 - Cuenta de Gmail con "Contraseña de Aplicación" habilitada.
-- API Key de Deepseek.
+- **API Key de Deepseek** ([https://platform.deepseek.com](https://platform.deepseek.com))
 
 ## Configuración
 
@@ -21,6 +23,14 @@ GMAIL_PASS=tu_app_password_aqui
 PORT=3008
 BOT_CONTEXT="Eres un asistente de cobranzas..."
 ```
+
+### Cambiar el Modelo de AI
+
+El bot está configurado para usar `deepseek-chat`. Si deseas cambiar el modelo:
+1. Edita `services/deepseek.js`
+2. Cambia la línea `model: 'deepseek-chat'` por el modelo que prefieras (ej: `deepseek-coder`)
+
+Para usar un proveedor diferente (como OpenAI, Anthropic, etc.), necesitarás modificar el archivo `services/deepseek.js` con la URL y formato de la nueva API.
 
 ## Ejecución Local
 
