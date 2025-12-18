@@ -3,6 +3,59 @@ const { getDeepseekResponse } = require('./services/deepseek');
 const { sendAdvisorEmail } = require('./services/email');
 const { sendMessage } = require('./utils/whatsapp');
 
+// ==================== CONVERSATION MEMORY ====================
+// Store conversation history per user (key = fromJid)
+const conversationHistory = new Map();
+
+// Configuration
+const MAX_MESSAGES_PER_USER = 20; // 10 intercambios (user + bot)
+const INACTIVITY_TIMEOUT = 60 * 60 * 1000; // 1 hora en milisegundos
+
+/**
+ * Get or create conversation history for a user
+ */
+function getConversation(fromJid) {
+    if (!conversationHistory.has(fromJid)) {
+        conversationHistory.set(fromJid, {
+            messages: [],
+            lastActivity: Date.now()
+        });
+    }
+    return conversationHistory.get(fromJid);
+}
+
+/**
+ * Add a message to conversation history
+ */
+function addMessage(fromJid, role, content) {
+    const conversation = getConversation(fromJid);
+    conversation.messages.push({ role, content });
+    conversation.lastActivity = Date.now();
+
+    // Limit history size (keep only last MAX_MESSAGES_PER_USER)
+    if (conversation.messages.length > MAX_MESSAGES_PER_USER) {
+        conversation.messages = conversation.messages.slice(-MAX_MESSAGES_PER_USER);
+    }
+}
+
+/**
+ * Clean up inactive conversations
+ */
+function cleanupInactiveConversations() {
+    const now = Date.now();
+    for (const [jid, conversation] of conversationHistory.entries()) {
+        if (now - conversation.lastActivity > INACTIVITY_TIMEOUT) {
+            conversationHistory.delete(jid);
+            console.log(`Cleaned up conversation for ${jid} due to inactivity`);
+        }
+    }
+}
+
+// Run cleanup every 10 minutes
+setInterval(cleanupInactiveConversations, 10 * 60 * 1000);
+
+// ==================== FLOW LOGIC ====================
+
 /**
  * Simple flow runner that applies the strict interaction rules and leverages AI.
  */
@@ -29,16 +82,25 @@ async function runFlow(incomingText, fromJid) {
     // Expand \n if it's literal in the env string
     const botContext = (process.env.BOT_CONTEXT || '').replace(/\\n/g, '\n');
 
+    // Get conversation history
+    const conversation = getConversation(fromJid);
+
+    // Build messages array with system + history + current message
     const messages = [
         {
             role: 'system',
-            content: `${botContext}\n\nREGLA ADICIONAL: Si el cliente proporciona su DNI pero no ha elegido una opción, SIEMPRE muestra el menú de opciones completo (1, 2, 3, 4). No resumas el menú. Mantén el formato original con saltos de línea.`
+            content: `${botContext}\n\nREGLA ADICIONAL: Si el cliente proporciona su DNI pero no ha elegido una opción, SIEMPRE muestra el menú de opciones completo (1, 2, 3, 4). No resumas el menú. Mantén el formato original con saltos de línea.\n\nRECUERDA: Mantén coherencia con la conversación previa. Si ya mostraste el menú y el usuario elige un número (1-4), proporciona la información correspondiente a esa opción.`
         },
-        { role: 'user', content: text }
+        ...conversation.messages, // Add conversation history
+        { role: 'user', content: text } // Add current message
     ];
 
     try {
         let aiResponse = await getDeepseekResponse(messages);
+
+        // Store the exchange in history
+        addMessage(fromJid, 'user', text);
+        addMessage(fromJid, 'assistant', aiResponse);
 
         // If AI includes numbered lists or newlines, preserve it entirely
         if (/\d+\.\s/.test(aiResponse) || aiResponse.includes('\n')) {
