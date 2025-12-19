@@ -2,6 +2,7 @@ const axios = require('axios');
 const { getDeepseekResponse } = require('./services/deepseek');
 const { sendAdvisorEmail } = require('./services/email');
 const { sendMessage } = require('./utils/whatsapp');
+const { getClienteByDNI, getDeudasByDNI, getOficinas, saveConversacion, formatDeudaInfo } = require('./services/database');
 
 // ==================== CONVERSATION MEMORY ====================
 // Store conversation history per user (key = fromJid)
@@ -61,53 +62,173 @@ setInterval(cleanupInactiveConversations, 10 * 60 * 1000);
  */
 async function runFlow(incomingText, fromJid) {
     const text = incomingText.trim();
+    let clienteInfo = null;
+    let intent = null;
 
-    // Broadened advisor/human agent detection
+    // ==================== DNI DETECTION ====================
+    // Detect if message contains DNI (8 digits)
+    const dniMatch = text.match(/\b\d{8}\b/);
+    const dni = dniMatch ? dniMatch[0] : null;
+
+    // If DNI is provided, get client info
+    if (dni) {
+        const clienteResult = await getClienteByDNI(dni);
+
+        if (clienteResult.success) {
+            clienteInfo = clienteResult.cliente;
+            intent = 'DNI_PROVIDED';
+
+            // Check if user is asking about debt
+            const deudaPattern = /deuda|debe|cuanto debo|saldo|pagar|cuenta|monto|adeudo/i;
+
+            if (deudaPattern.test(text)) {
+                // User is asking about their debt
+                const deudasResult = await getDeudasByDNI(dni);
+
+                if (deudasResult.success && deudasResult.deudas.length > 0) {
+                    const deuda = deudasResult.deudas[0]; // Get first debt
+                    const response = `Hola ${clienteInfo.ultimo_nombre}! 👋\n\n${formatDeudaInfo(deuda)}\n\n¿En qué más puedo ayudarte?`;
+
+                    // Save conversation
+                    await saveConversacion({
+                        clienteId: clienteInfo.id,
+                        telefonoWhatsapp: fromJid,
+                        dniProporcionado: dni,
+                        mensajeCliente: text,
+                        respuestaBot: response,
+                        intent: 'CONSULTA_DEUDA'
+                    });
+
+                    return response;
+                } else {
+                    const response = `Hola ${clienteInfo.ultimo_nombre}! 👋\n\nNo encontramos deudas pendientes con tu DNI. Si tienes alguna consulta, puedes pedir hablar con un asesor.`;
+
+                    await saveConversacion({
+                        clienteId: clienteInfo.id,
+                        telefonoWhatsapp: fromJid,
+                        dniProporcionado: dni,
+                        mensajeCliente: text,
+                        respuestaBot: response,
+                        intent: 'SIN_DEUDA'
+                    });
+
+                    return response;
+                }
+            } else {
+                // Just greeting with DNI, no debt query
+                const response = `Hola ${clienteInfo.ultimo_nombre}! 👋\n\nBienvenido a InformaPeru. ¿En qué puedo ayudarte?\n\n1. Consultar deuda\n2. Opciones de pago y descuentos\n3. Ubicación de oficinas\n4. Hablar con un asesor`;
+
+                await saveConversacion({
+                    clienteId: clienteInfo.id,
+                    telefonoWhatsapp: fromJid,
+                    dniProporcionado: dni,
+                    mensajeCliente: text,
+                    respuestaBot: response,
+                    intent: 'SALUDO_CON_DNI'
+                });
+
+                return response;
+            }
+        }
+    }
+
+    // ==================== OPTION SELECTION ====================
+    // Check if user selected an option (1-4)
+    if (/^[1-4]$/.test(text.trim())) {
+        const option = parseInt(text.trim());
+
+        switch (option) {
+            case 1:
+                intent = 'OPCION_DETALLES_DEUDA';
+                return 'Para consultar tu deuda, por favor proporciona tu DNI (8 dígitos).';
+
+            case 2:
+                intent = 'OPCION_DESCUENTOS';
+                return 'Tenemos descuentos de hasta 15% en pagos al contado. Para más detalles específicos, proporciona tu DNI.';
+
+            case 3:
+                intent = 'OPCION_OFICINAS';
+                const oficinasResult = await getOficinas();
+                if (oficinasResult.success && oficinasResult.oficinas.length > 0) {
+                    let response = '📍 Nuestras oficinas:\n\n';
+                    oficinasResult.oficinas.forEach((ofi, index) => {
+                        response += `${index + 1}. ${ofi.nombre}\n`;
+                        response += `   📍 ${ofi.direccion}\n`;
+                        response += `   📞 ${ofi.telefono}\n`;
+                        response += `   🕐 ${ofi.horario}\n\n`;
+                    });
+                    return response.trim();
+                }
+                return 'Lo siento, no pude obtener información de las oficinas en este momento.';
+
+            case 4:
+                intent = 'SOLICITA_ASESOR';
+                return 'Para conectarte con un asesor, proporciona tu DNI y tu consulta en un mensaje.\nEjemplo: "DNI 12345678, quiero reprogramar mi deuda"';
+
+            default:
+                return 'Opción no válida. Por favor elige del 1 al 4.';
+        }
+    }
+
+    // ==================== ADVISOR REQUEST ====================
     const advisorPattern = /asesor|human|hablar con un asesor|agente|comunicarme con/i;
 
-    // Check if the user is providing a DNI + request for an advisor
     if (advisorPattern.test(text) || (text.length > 20 && /\b\d{8,}\b/.test(text))) {
         const dniMatch = text.match(/\b\d{8,}\b/);
         const dni = dniMatch ? dniMatch[0] : null;
 
-        // If they ask for advisor OR if it looks like a follow-up with DNI and query
         if (dni && (advisorPattern.test(text) || text.length > 15)) {
             await sendAdvisorEmail(dni, text);
+            intent = 'DERIVADO_ASESOR';
+
+            await saveConversacion({
+                telefonoWhatsapp: fromJid,
+                dniProporcionado: dni,
+                mensajeCliente: text,
+                respuestaBot: 'Derivado a asesor',
+                intent,
+                derivadoAsesor: true
+            });
+
             return 'Listo. Se te está derivando con un asesor personalizado. Te contactaremos pronto.';
         } else if (advisorPattern.test(text)) {
             return 'Para derivarte, necesito tu DNI y tu consulta en un solo mensaje. Ejemplo: "DNI 12345678, quiero reprogramar mi deuda"';
         }
     }
 
-    // Expand \n if it's literal in the env string
+    // ==================== AI RESPONSE ====================
     const botContext = (process.env.BOT_CONTEXT || '').replace(/\\n/g, '\n');
-
-    // Get conversation history
     const conversation = getConversation(fromJid);
 
-    // Build messages array with system + history + current message
     const messages = [
         {
             role: 'system',
             content: `${botContext}\n\nREGLA ADICIONAL: Si el cliente proporciona su DNI pero no ha elegido una opción, SIEMPRE muestra el menú de opciones completo (1, 2, 3, 4). No resumas el menú. Mantén el formato original con saltos de línea.\n\nRECUERDA: Mantén coherencia con la conversación previa. Si ya mostraste el menú y el usuario elige un número (1-4), proporciona la información correspondiente a esa opción.`
         },
-        ...conversation.messages, // Add conversation history
-        { role: 'user', content: text } // Add current message
+        ...conversation.messages,
+        { role: 'user', content: text }
     ];
 
     try {
         let aiResponse = await getDeepseekResponse(messages);
 
-        // Store the exchange in history
         addMessage(fromJid, 'user', text);
         addMessage(fromJid, 'assistant', aiResponse);
 
-        // If AI includes numbered lists or newlines, preserve it entirely
+        // Save conversation to database
+        await saveConversacion({
+            clienteId: clienteInfo?.id || null,
+            telefonoWhatsapp: fromJid,
+            dniProporcionado: dni,
+            mensajeCliente: text,
+            respuestaBot: aiResponse,
+            intent: intent || 'CONVERSACION_GENERAL'
+        });
+
         if (/\d+\.\s/.test(aiResponse) || aiResponse.includes('\n')) {
             return aiResponse;
         }
 
-        // For conversational responses, limit to 2-3 sentences
         const sentences = aiResponse.split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 0);
         const limited = sentences.slice(0, 3).join(' ').trim();
 

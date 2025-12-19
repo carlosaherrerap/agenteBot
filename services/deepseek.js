@@ -19,7 +19,7 @@ async function getDeepseekResponse(messages) {
     // ==================== MODELOS DISPONIBLES ====================
     const payload = {
         // DEEPSEEK MODELS:
-        model: 'deepseek-chat',          // Recomendado para conversaciones
+        model: 'llama3.2',          // Recomendado para conversaciones
         // model: 'deepseek-coder',       // Para código y programación
 
         // OLLAMA MODELS (descomentar si usas OLLAMA):
