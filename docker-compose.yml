@@ -52,6 +52,9 @@ services:
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
+      - OLLAMA_URL=http://host.docker.internal:11434/api/chat
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./auth:/app/auth
       - ./public:/app/public
