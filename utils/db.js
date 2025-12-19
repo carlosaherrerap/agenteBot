@@ -1,5 +1,8 @@
 const { Pool } = require('pg');
 
+// Flag to track if DB is available
+let dbAvailable = true;
+
 // Create a connection pool
 const pool = new Pool({
     host: process.env.DB_HOST || 'localhost',
@@ -9,20 +12,26 @@ const pool = new Pool({
     database: process.env.DB_NAME || 'chatbot_db',
     max: 20,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
+    connectionTimeoutMillis: 3000,
 });
 
 // Test connection
 pool.on('connect', () => {
     console.log('✅ Connected to PostgreSQL database');
+    dbAvailable = true;
 });
 
 pool.on('error', (err) => {
-    console.error('❌ Unexpected error on idle PostgreSQL client:', err.message);
+    console.error('⚠️ PostgreSQL not available:', err.message);
+    dbAvailable = false;
 });
 
-// Helper function to execute queries
+// Helper function to execute queries (graceful failure)
 async function query(text, params) {
+    if (!dbAvailable) {
+        return { rows: [], rowCount: 0 };
+    }
+
     const start = Date.now();
     try {
         const res = await pool.query(text, params);
@@ -30,8 +39,13 @@ async function query(text, params) {
         console.log(`⚡ Query executed in ${duration}ms | Rows: ${res.rowCount}`);
         return res;
     } catch (error) {
+        if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+            console.warn('⚠️ Database not available, continuing without DB');
+            dbAvailable = false;
+            return { rows: [], rowCount: 0 };
+        }
         console.error('❌ Database query error:', error.message);
-        throw error;
+        return { rows: [], rowCount: 0 };
     }
 }
 

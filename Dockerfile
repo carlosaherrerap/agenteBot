@@ -11,7 +11,11 @@ RUN npm install
 
 COPY . .
 
+# Make entrypoint executable
+RUN chmod +x docker-entrypoint.sh
+
 # Expose the configured port
 EXPOSE 3008
 
-CMD ["npm", "start"]
+# Use custom entrypoint that cleans auth folder
+ENTRYPOINT ["./docker-entrypoint.sh"]
