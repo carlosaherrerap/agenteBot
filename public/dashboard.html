@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Conversaciones WhatsApp</title>
+    <link rel="stylesheet" href="dashboard.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="dashboard">
+        <!-- Sidebar - Lista de Chats -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>💬 Chats</h1>
+                <span class="chat-count" id="chatCount">0</span>
+            </div>
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="Buscar conversación...">
+            </div>
+            <div class="chat-list" id="chatList">
+                <div class="no-chats">
+                    <span>📭</span>
+                    <p>No hay conversaciones activas</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content - Conversación -->
+        <main class="main-content">
+            <!-- Header del chat -->
+            <header class="chat-header" id="chatHeader">
+                <div class="chat-info">
+                    <div class="avatar" id="chatAvatar">?</div>
+                    <div class="details">
+                        <h2 id="chatName">Selecciona un chat</h2>
+                        <span class="phone" id="chatPhone"></span>
+                    </div>
+                </div>
+                <div class="chat-actions">
+                    <button class="btn-toggle" id="btnToggleBot" disabled>
+                        <span class="status-dot active"></span>
+                        <span class="btn-text">Bot Activo</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Mensajes -->
+            <div class="messages-container" id="messagesContainer">
+                <div class="welcome-screen" id="welcomeScreen">
+                    <div class="welcome-icon">💬</div>
+                    <h2>Bienvenido al Dashboard</h2>
+                    <p>Selecciona una conversación de la lista para ver los mensajes</p>
+                </div>
+            </div>
+
+            <!-- Input de mensaje -->
+            <footer class="message-input" id="messageInput">
+                <div class="input-wrapper">
+                    <textarea 
+                        id="textInput" 
+                        placeholder="El bot está activo. Pausalo para escribir manualmente..."
+                        disabled
+                        rows="1"
+                    ></textarea>
+                    <button class="btn-send" id="btnSend" disabled>
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                        </svg>
+                    </button>
+                </div>
+                <p class="input-hint" id="inputHint">
+                    🤖 El bot está respondiendo automáticamente
+                </p>
+            </footer>
+        </main>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>

@@ -8,6 +8,31 @@ const { getClienteByDNI, getDeudasByDNI, getOficinas, saveConversacion, formatDe
 // Store conversation history per user (key = fromJid)
 const conversationHistory = new Map();
 
+// ==================== BOT PAUSE CONTROL ====================
+// Set of JIDs where bot is paused (human takes over)
+const pausedChats = new Set();
+
+/**
+ * Check if bot is paused for a specific chat
+ */
+function isBotPaused(jid) {
+    return pausedChats.has(jid);
+}
+
+/**
+ * Toggle bot pause status for a chat
+ * @returns {boolean} New pause status (true = paused)
+ */
+function toggleBotPause(jid) {
+    if (pausedChats.has(jid)) {
+        pausedChats.delete(jid);
+        return false;
+    } else {
+        pausedChats.add(jid);
+        return true;
+    }
+}
+
 // Configuration
 const MAX_MESSAGES_PER_USER = 20; // 10 intercambios (user + bot)
 const INACTIVITY_TIMEOUT = 60 * 60 * 1000; // 1 hora en milisegundos
@@ -239,4 +264,4 @@ async function runFlow(incomingText, fromJid) {
     }
 }
 
-module.exports = { runFlow };
+module.exports = { runFlow, isBotPaused, toggleBotPause };
