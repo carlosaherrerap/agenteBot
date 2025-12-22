@@ -45,28 +45,202 @@ if (fs.existsSync(infoDbPath)) {
 }
 
 /**
- * Simple cache‑aware query helper for common questions.
- * Returns a string answer.
+ * Parse the infoDb.txt content into a key/value object.
+ * Expected format: each line "FIELD: value"
  */
-async function handleDatabaseQuery(question) {
+function parseInfoDb(content) {
+    const obj = {};
+    const lines = content.split(/\r?\n/);
+    for (const line of lines) {
+        const idx = line.indexOf(':');
+        if (idx > -1) {
+            const key = line.slice(0, idx).trim();
+            const value = line.slice(idx + 1).trim();
+            obj[key] = value;
+        }
+    }
+    return obj;
+}
+
+const infoDb = parseInfoDb(infoDbContent);
+
+/**
+ * Generate answers based on infoDb fields for common queries.
+ */
+function answerFromInfoDb(question, info) {
+    const q = question.toLowerCase();
+    // Greeting with name
+    if (q.includes('hola') || q.includes('buenas')) {
+        const fullName = info['CLIENTE_PREMIUM'] || '';
+        const firstPart = fullName.split(',')[0].trim();
+        const secondPart = fullName.split(',')[1] ? fullName.split(',')[1].trim() : '';
+        const nameToUse = secondPart ? secondPart.split(' ')[0] : firstPart.split(' ')[0];
+        return `Hola ${nameToUse}! 👋`;
+    }
+    // Saldo cuota
+    if (q.includes('saldo')) {
+        return `El saldo de la cuota es S/ ${info['SALDO_CUOTA'] || '0'}.`;
+    }
+    // Cuotas pendientes
+    if (q.includes('cuotas') && q.includes('pendientes')) {
+        return `Le quedan ${info['CUOTAS_PENDIENTES'] || '0'} cuotas por pagar.`;
+    }
+    // Cuotas pagadas
+    if (q.includes('cuotas') && q.includes('pagadas')) {
+        return `Ha pagado ${info['CUOTAS_PAGADAS'] || '0'} cuotas.`;
+    }
+    // Último pago
+    if (q.includes('último') && q.includes('pago')) {
+        return `Su último pago fue el ${info['UTLIMO_PAGO'] || 'desconocido'}.`;
+    }
+    // Días de atraso
+    if (q.includes('atraso')) {
+        return `Tiene ${info['DIAS_ATRASO'] || '0'} días de atraso.`;
+    }
+    // Vencimiento próximo
+    if (q.includes('vence') || q.includes('plazo')) {
+        const max = parseInt(info['ATRASO_MAXIMO'] || '0', 10);
+        const atraso = parseInt(info['DIAS_ATRASO'] || '0', 10);
+        const remaining = Math.max(max - atraso, 0);
+        const today = new Date();
+        const vencDate = new Date(today.getTime() + remaining * 24 * 60 * 60 * 1000);
+        const dd = String(vencDate.getDate()).padStart(2, '0');
+        const mm = String(vencDate.getMonth() + 1).padStart(2, '0');
+        const yy = vencDate.getFullYear();
+        return `Le quedan ${remaining} día(s) de plazo. Vence el ${dd}/${mm}/${yy}.`;
+    }
+    // Oficina cercana
+    if (q.includes('oficina') || q.includes('cerca')) {
+        const dept = info['DEPARTAMENTO_CLIENTE'];
+        const agencia = info['AGENCIA'];
+        if (dept && agencia) {
+            return `La oficina más cercana en ${dept}-${agencia} es la de Caja Huancayo en esa zona.`;
+        }
+    }
+    return null;
+}
+
+
+const infoDbGuide = infoDbContent; // Store the raw guide for the AI
+
+/**
+ * Fetch client data from SQL Server by DNI, RUC or Account
+ */
+async function getClientData(identifier) {
+    if (!identifier) return null;
+    try {
+        // Try DNI (8 digits), RUC (11 digits) or Account (various)
+        const rows = await sql.query(
+            `SELECT * FROM Huancayo.Base 
+             WHERE NRO_DNI = @p0 
+             OR NRO_RUC = @p0 
+             OR CUENTA_CREDITO = @p0`,
+            [identifier]
+        );
+        return rows.length ? rows[0] : null;
+    } catch (err) {
+        console.error('Error fetching client data from SQL:', err.message);
+        return null;
+    }
+}
+
+/**
+ * Generate answers based on infoDb fields for common queries.
+ */
+function answerFromInfoDb(question, client) {
+    if (!client) return null;
+    const q = question.toLowerCase();
+
+    // Greeting with name
+    if (q.includes('hola') || q.includes('buenas')) {
+        const fullName = client['CLIENTE_PREMIUM'] || '';
+        // Format: URETA VALERIO, VIVIAN CAROLAY
+        const parts = fullName.split(',');
+        if (parts.length < 2) return `Hola ${fullName.split(' ')[0]}! 👋`;
+
+        const namesPart = parts[1].trim();
+        const names = namesPart.split(' ');
+        // Use first name or both if second exists
+        const nameToUse = names.length >= 2 ? `${names[0]} ${names[1]}` : names[0];
+        return `Hola ${nameToUse}! 👋`;
+    }
+
+    // Debt balance
+    if (q.includes('saldo') || q.includes('cuanto debo') || q.includes('monto')) {
+        return `El saldo de tu cuota es S/ ${client['SALDO_CUOTA'] || '0'}.`;
+    }
+
+    // Pending installments
+    if (q.includes('cuotas') && (q.includes('falta') || q.includes('pendiente'))) {
+        return `Te faltan pagar ${client['CUOTAS_PENDIENTES'] || '0'} cuotas.`;
+    }
+
+    // Paid installments
+    if (q.includes('cuotas') && (q.includes('pagué') || q.includes('pagó') || q.includes('pagadas'))) {
+        return `Ya has pagado ${client['CUOTAS_PAGADAS'] || '0'} cuotas.`;
+    }
+
+    // Last payment
+    if (q.includes('último pago') || q.includes('ultima fecha')) {
+        return `Tu último pago fue el ${client['UTLIMO_PAGO'] || 'desconocido'}.`;
+    }
+
+    // Days late
+    if (q.includes('atraso') || q.includes('días tarde')) {
+        return `Tienes ${client['DIAS_ATRASO'] || '0'} días de atraso.`;
+    }
+
+    // Next due date / remaining days
+    if (q.includes('vence') || q.includes('plazo') || q.includes('cuando tengo que pagar')) {
+        const max = parseInt(client['ATRASO_MAXIMO'] || '0', 10);
+        const atraso = parseInt(client['DIAS_ATRASO'] || '0', 10);
+        const remaining = max - atraso;
+
+        const today = new Date();
+        const vencDate = new Date(today.getTime() + remaining * 24 * 60 * 60 * 1000);
+
+        const dd = String(vencDate.getDate()).padStart(2, '0');
+        const mm = String(vencDate.getMonth() + 1).padStart(2, '0');
+        const yyyy = vencDate.getFullYear();
+
+        const dateStr = `${dd}/${mm}/${yyyy}`;
+
+        if (remaining > 0) {
+            return `Te quedan ${remaining} día(s) de plazo. Vence el ${dateStr}.`;
+        } else if (remaining === 0) {
+            return `Tu cuota vence hoy, ${dateStr}.`;
+        } else {
+            return `Tu cuota ya venció el ${dateStr}.`;
+        }
+    }
+
+    // Nearby office
+    if (q.includes('oficina') || q.includes('agencia') || q.includes('cerca')) {
+        const dept = client['DEPARTAMENTO_CLIENTE'];
+        const agencia = client['AGENCIA'];
+        if (dept && agencia) {
+            return `Tu agencia asignada es ${agencia} en el departamento de ${dept}. Puedes acercarte a cualquier oficina de Caja Huancayo en esa zona.`;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Simple cache‑aware query helper.
+ */
+async function handleDatabaseQuery(question, client) {
     const lowered = question.toLowerCase();
     if (cache.has(lowered)) {
         return cache.get(lowered);
     }
-    // Example heuristic: balance query
-    const match = lowered.match(/(saldo|saldo_capital).*?(\d{12,})/);
-    if (match) {
-        const account = match[2];
-        const rows = await sql.query(`SELECT SALDO_CAPITAL FROM Huancayo.Base WHERE CUENTA_CREDITO = @p0`, [account]);
-        const answer = rows.length ? `El saldo del cliente es S/ ${rows[0].SALDO_CAPITAL}` : 'No se encontró la cuenta.';
+
+    // The main logic is now in answerFromInfoDb
+    const answer = answerFromInfoDb(question, client);
+    if (answer) {
         cache.set(lowered, answer);
         setTimeout(() => cache.delete(lowered), 5 * 60 * 1000);
-        return answer;
     }
-    // Fallback: return infoDb content (truncated)
-    const answer = infoDbContent.slice(0, 2000);
-    cache.set(lowered, answer);
-    setTimeout(() => cache.delete(lowered), 5 * 60 * 1000);
     return answer;
 }
 
@@ -260,18 +434,37 @@ async function runFlow(incomingText, fromJid) {
 
     // ==================== AI RESPONSE ====================
     const botContext = (process.env.BOT_CONTEXT || '').replace(/\\n/g, '\n');
-    // Try local DB/cache first
-    const localAnswer = await handleDatabaseQuery(text);
+
+    // 1. Detect if we have a client identifier (DNI, RUC, Account)
+    const identifierMatch = text.match(/\b\d{8,}\b/);
+    const identifier = identifierMatch ? identifierMatch[0] : null;
+
+    let clientData = null;
+    if (identifier) {
+        clientData = await getClientData(identifier);
+    }
+
+    // 2. Try to answer using infoDb logic (shortcut)
+    const infoAnswer = answerFromInfoDb(text, clientData);
+    if (infoAnswer) {
+        addMessage(fromJid, 'assistant', infoAnswer);
+        return infoAnswer;
+    }
+
+    // 3. Try cache/local DB handler
+    const localAnswer = await handleDatabaseQuery(text, clientData);
     if (localAnswer) {
         addMessage(fromJid, 'assistant', localAnswer);
         return localAnswer;
     }
+
     const conversation = getConversation(fromJid);
+    const clientContext = clientData ? `\n\nDATOS DEL CLIENTE ACTUAL:\n${JSON.stringify(clientData, null, 2)}` : '';
 
     const messages = [
         {
             role: 'system',
-            content: `${botContext}\n\nREGLA ADICIONAL: Si el cliente proporciona su DNI pero no ha elegido una opción, SIEMPRE muestra el menú de opciones completo (1, 2, 3, 4). No resumas el menú. Mantén el formato original con saltos de línea.\n\nRECUERDA: Mantén coherencia con la conversación previa. Si ya mostraste el menú y el usuario elige un número (1-4), proporciona la información correspondiente a esa opción.`
+            content: `${botContext}\n\nLOGICA DE BASE DE DATOS (infoDb.txt):\n${infoDbGuide}${clientContext}\n\nREGLA ADICIONAL: Si el cliente proporciona su DNI pero no ha elegido una opción, SIEMPRE muestra el menú de opciones completo (1, 2, 3, 4). No resumas el menú. Mantén el formato original con saltos de línea.`
         },
         ...conversation.messages,
         { role: 'user', content: text }
@@ -285,9 +478,9 @@ async function runFlow(incomingText, fromJid) {
 
         // Save conversation to database
         await saveConversacion({
-            clienteId: clienteInfo?.id || null,
+            clienteId: clientData?.id || null,
             telefonoWhatsapp: fromJid,
-            dniProporcionado: dni,
+            dniProporcionado: identifier || null,
             mensajeCliente: text,
             respuestaBot: aiResponse,
             intent: intent || 'CONVERSACION_GENERAL'
