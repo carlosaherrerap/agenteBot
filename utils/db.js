@@ -26,7 +26,7 @@ pool.on('error', (err) => {
     dbAvailable = false;
 });
 
-// Helper function to execute queries (graceful failure)
+// Helper function to execute queries (Graceful fallback for internal logs)
 async function query(text, params) {
     if (!dbAvailable) {
         return { rows: [], rowCount: 0 };
@@ -36,15 +36,14 @@ async function query(text, params) {
     try {
         const res = await pool.query(text, params);
         const duration = Date.now() - start;
-        console.log(`⚡ Query executed in ${duration}ms | Rows: ${res.rowCount}`);
         return res;
     } catch (error) {
         if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-            console.warn('⚠️ Database not available, continuing without DB');
+            console.warn('⚠️ PostgreSQL (Logs) not available, continuing without internal history storage');
             dbAvailable = false;
-            return { rows: [], rowCount: 0 };
+        } else {
+            console.error('❌ PostgreSQL query error:', error.message);
         }
-        console.error('❌ Database query error:', error.message);
         return { rows: [], rowCount: 0 };
     }
 }

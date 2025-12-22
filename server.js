@@ -65,6 +65,19 @@ function clearAuth() {
 
 // ==================== WHATSAPP CONNECTION ====================
 async function startWhatsApp() {
+    // MANDATORY check for SQL Server (Your database)
+    const sql = require('./utils/sqlServer');
+    try {
+        const rows = await sql.query("SELECT TOP 1 * FROM [dbo].[HuancayoBase]");
+        console.log('✅ SQL Server Connection Successful (HuancayoBase).');
+        console.log('Fields detected:', Object.keys(rows[0]).join(', '));
+    } catch (err) {
+        console.error('❌ CRITICAL ERROR: SQL Server not reachable.');
+        console.error('The bot cannot start without access to its main database (ContextBot).');
+        console.error('Error Details:', err.message);
+        process.exit(1);
+    }
+
     const { state, saveCreds } = await useMultiFileAuthState(path.resolve(__dirname, 'auth'));
 
     const versionInfo = await fetchLatestBaileysVersion();

@@ -44,6 +44,20 @@ if (fs.existsSync(infoDbPath)) {
     infoDbContent = fs.readFileSync(infoDbPath, 'utf8');
 }
 
+// Initial SQL Verification
+(async () => {
+    try {
+        console.log('--- Verificando SQL Server al iniciar ---');
+        const rows = await sql.query("SELECT TOP 1 * FROM [dbo].[HuancayoBase]");
+        console.log('✅ Conexión exitosa a la tabla [dbo].[HuancayoBase]');
+        if (rows.length > 0) {
+            console.log('Campos detectados:', Object.keys(rows[0]).join(', '));
+        }
+    } catch (err) {
+        console.error('❌ Error inicial SQL:', err.message);
+    }
+})();
+
 /**
  * Parse the infoDb.txt content into a key/value object.
  * Expected format: each line "FIELD: value"
@@ -131,7 +145,7 @@ async function getClientData(identifier) {
     try {
         // Try DNI (8 digits), RUC (11 digits) or Account (various)
         const rows = await sql.query(
-            `SELECT * FROM [Huancayo].[Base] 
+            `SELECT * FROM [dbo].[HuancayoBase] 
              WHERE NRO_DNI = @p0 
              OR NRO_RUC = @p0 
              OR CUENTA_CREDITO = @p0`,
@@ -182,7 +196,7 @@ function answerFromInfoDb(question, client) {
 
     // Last payment
     if (q.includes('último pago') || q.includes('ultima fecha')) {
-        return `Tu último pago fue el ${client['UTLIMO_PAGO'] || 'desconocido'}.`;
+        return `Tu último pago fue el ${client['ULTIMO_PAGO'] || 'desconocido'}.`;
     }
 
     // Days late
@@ -255,7 +269,8 @@ function getConversation(fromJid) {
     if (!conversationHistory.has(fromJid)) {
         conversationHistory.set(fromJid, {
             messages: [],
-            lastActivity: Date.now()
+            lastActivity: Date.now(),
+            clientData: null // Store client info found in session
         });
     }
     return conversationHistory.get(fromJid);
@@ -433,32 +448,44 @@ async function runFlow(incomingText, fromJid) {
     }
 
     // ==================== AI RESPONSE ====================
+    console.log(`\n--- Procesando Mensaje: "${text}" ---`);
     const botContext = (process.env.BOT_CONTEXT || '').replace(/\\n/g, '\n');
+    const conversation = getConversation(fromJid);
 
-    // 1. Detect if we have a client identifier (DNI, RUC, Account)
     const identifierMatch = text.match(/\b\d{8,}\b/);
     const identifier = identifierMatch ? identifierMatch[0] : null;
 
-    let clientData = null;
+    let clientData = conversation.clientData;
     if (identifier) {
-        clientData = await getClientData(identifier);
+        console.log(`🔍 Buscando identificador: ${identifier}`);
+        const fetchedData = await getClientData(identifier);
+        if (fetchedData) {
+            console.log(`✅ Cliente encontrado: ${fetchedData.CLIENTE_PREMIUM || fetchedData.NRO_DNI}`);
+            clientData = fetchedData;
+            conversation.clientData = fetchedData;
+        } else {
+            console.log(`❌ No se encontró nada en SQL para: ${identifier}`);
+        }
     }
 
-    // 2. Try to answer using infoDb logic (shortcut)
+    if (clientData) console.log(`📋 Usando datos de cliente: ${clientData.CLIENTE_PREMIUM || clientData.NRO_DNI}`);
+
     const infoAnswer = answerFromInfoDb(text, clientData);
     if (infoAnswer) {
+        console.log('⚡ Respuesta automática vía infoDb.txt');
         addMessage(fromJid, 'assistant', infoAnswer);
         return infoAnswer;
     }
 
-    // 3. Try cache/local DB handler
     const localAnswer = await handleDatabaseQuery(text, clientData);
     if (localAnswer) {
+        console.log('⚡ Respuesta vía Caché/DB local');
         addMessage(fromJid, 'assistant', localAnswer);
         return localAnswer;
     }
 
-    const conversation = getConversation(fromJid);
+    console.log('🤖 Recurriendo a Deepseek');
+
     const clientContext = clientData ? `\n\nDATOS DEL CLIENTE ACTUAL:\n${JSON.stringify(clientData, null, 2)}` : '';
 
     const messages = [
