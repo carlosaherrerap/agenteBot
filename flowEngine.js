@@ -3,6 +3,10 @@ const { getDeepseekResponse } = require('./services/deepseek');
 const { sendAdvisorEmail } = require('./services/email');
 const { sendMessage } = require('./utils/whatsapp');
 const { getClienteByDNI, getDeudasByDNI, getOficinas, saveConversacion, formatDeudaInfo } = require('./services/database');
+const sql = require('./utils/sqlServer');
+const fs = require('fs');
+const path = require('path');
+const cache = new Map(); // simple in‑memory cache
 
 // ==================== CONVERSATION MEMORY ====================
 // Store conversation history per user (key = fromJid)
@@ -31,6 +35,39 @@ function toggleBotPause(jid) {
         pausedChats.add(jid);
         return true;
     }
+}
+
+// Load infoDb.txt once at startup
+const infoDbPath = path.resolve(__dirname, 'infoDb.txt');
+let infoDbContent = '';
+if (fs.existsSync(infoDbPath)) {
+    infoDbContent = fs.readFileSync(infoDbPath, 'utf8');
+}
+
+/**
+ * Simple cache‑aware query helper for common questions.
+ * Returns a string answer.
+ */
+async function handleDatabaseQuery(question) {
+    const lowered = question.toLowerCase();
+    if (cache.has(lowered)) {
+        return cache.get(lowered);
+    }
+    // Example heuristic: balance query
+    const match = lowered.match(/(saldo|saldo_capital).*?(\d{12,})/);
+    if (match) {
+        const account = match[2];
+        const rows = await sql.query(`SELECT SALDO_CAPITAL FROM Huancayo.Base WHERE CUENTA_CREDITO = @p0`, [account]);
+        const answer = rows.length ? `El saldo del cliente es S/ ${rows[0].SALDO_CAPITAL}` : 'No se encontró la cuenta.';
+        cache.set(lowered, answer);
+        setTimeout(() => cache.delete(lowered), 5 * 60 * 1000);
+        return answer;
+    }
+    // Fallback: return infoDb content (truncated)
+    const answer = infoDbContent.slice(0, 2000);
+    cache.set(lowered, answer);
+    setTimeout(() => cache.delete(lowered), 5 * 60 * 1000);
+    return answer;
 }
 
 // Configuration
@@ -223,6 +260,12 @@ async function runFlow(incomingText, fromJid) {
 
     // ==================== AI RESPONSE ====================
     const botContext = (process.env.BOT_CONTEXT || '').replace(/\\n/g, '\n');
+    // Try local DB/cache first
+    const localAnswer = await handleDatabaseQuery(text);
+    if (localAnswer) {
+        addMessage(fromJid, 'assistant', localAnswer);
+        return localAnswer;
+    }
     const conversation = getConversation(fromJid);
 
     const messages = [
