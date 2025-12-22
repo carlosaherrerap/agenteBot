@@ -131,7 +131,7 @@ async function getClientData(identifier) {
     try {
         // Try DNI (8 digits), RUC (11 digits) or Account (various)
         const rows = await sql.query(
-            `SELECT * FROM Huancayo.Base 
+            `SELECT * FROM [Huancayo].[Base] 
              WHERE NRO_DNI = @p0 
              OR NRO_RUC = @p0 
              OR CUENTA_CREDITO = @p0`,
