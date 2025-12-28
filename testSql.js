@@ -1,16 +1,23 @@
-const sql = require('mssql');
+const sql = require('mssql/msnodesqlv8');
 require('dotenv').config();
 
+//configuracion para autenticacion de sql server
+// const config = {
+//     user: process.env.MSSQL_USER || 'sa',
+//     password: process.env.MSSQL_PASSWORD || 'Informa2025$$',
+//     server: process.env.MSSQL_SERVER || '192.168.18.117',
+//     database: process.env.MSSQL_DB || 'ContextBot',
+//     options: {
+//         encrypt: false,
+//         trustServerCertificate: true,
+//         enableArithAbort: true,
+//     },
+// };
+
+
+// Configuración para Autenticación de Windows usando msnodesqlv8
 const config = {
-    user: process.env.MSSQL_USER || 'sa',
-    password: process.env.MSSQL_PASSWORD || 'Informa2025$$',
-    server: process.env.MSSQL_SERVER || '192.168.18.117',
-    database: process.env.MSSQL_DB || 'ContextBot',
-    options: {
-        encrypt: false,
-        trustServerCertificate: true,
-        enableArithAbort: true,
-    },
+    connectionString: 'Driver={ODBC Driver 17 for SQL Server};Server=FAMILIAHERRERA\\SQLEXPRESS;Database=ContextBot;Trusted_Connection=yes;TrustServerCertificate=yes;'
 };
 
 async function testConnection() {
@@ -24,7 +31,8 @@ async function testConnection() {
             console.log(`- [${t.TABLE_SCHEMA}].[${t.TABLE_NAME}]`);
         });
 
-        const queryHuancayo = `SELECT TOP 1 * FROM [Huancayo].[Base]`;
+        const queryHuancayo = `SELECT TOP 1 * FROM HuancayoBase`;
+        //const queryHuancayo = `SELECT TOP 1 * FROM [Huancayo].[Base]`;
         try {
             const res = await pool.request().query(queryHuancayo);
             console.log('✅ Consulta a [Huancayo].[Base] exitosa.');

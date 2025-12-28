@@ -1,21 +1,27 @@
-const sql = require('mssql');
+const sql = require('mssql/msnodesqlv8');
 
-// Configuración basada en variables de entorno (con valores por defecto)
+//Configuracion para autenticacion de Sql Server
+
+// const config = {
+//     user: process.env.MSSQL_USER || 'sa',
+//     password: process.env.MSSQL_PASSWORD || 'Informa2025$$',
+//     server: process.env.MSSQL_SERVER || '192.168.18.117',
+//     database: process.env.MSSQL_DB || 'ContextBot',
+//     options: {
+//         encrypt: false, // para conexiones sin TLS
+//         trustServerCertificate: true,
+//         enableArithAbort: true,
+//     },
+//     pool: {
+//         max: 10,
+//         min: 0,
+//         idleTimeoutMillis: 30000,
+//     },
+// };
+
+// Configuración para Autenticación de Windows usando msnodesqlv8
 const config = {
-    user: process.env.MSSQL_USER || 'sa',
-    password: process.env.MSSQL_PASSWORD || 'Informa2025$$',
-    server: process.env.MSSQL_SERVER || '192.168.18.117',
-    database: process.env.MSSQL_DB || 'ContextBot',
-    options: {
-        encrypt: false, // para conexiones sin TLS
-        trustServerCertificate: true,
-        enableArithAbort: true,
-    },
-    pool: {
-        max: 10,
-        min: 0,
-        idleTimeoutMillis: 30000,
-    },
+    connectionString: 'Driver={ODBC Driver 17 for SQL Server};Server=FAMILIAHERRERA\\SQLEXPRESS;Database=ContextBot;Trusted_Connection=yes;TrustServerCertificate=yes;'
 };
 
 let pool;
