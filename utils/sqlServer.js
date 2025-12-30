@@ -21,7 +21,7 @@ const sql = require('mssql/msnodesqlv8');
 
 // Configuración para Autenticación de Windows usando msnodesqlv8
 const config = {
-    connectionString: 'Driver={ODBC Driver 17 for SQL Server};Server=FAMILIAHERRERA\\SQLEXPRESS;Database=ContextBot;Trusted_Connection=yes;TrustServerCertificate=yes;'
+    connectionString: 'Driver={ODBC Driver 18 for SQL Server};Server=localhost\\SQLEXPRESS;Database=ContextBot;Trusted_Connection=yes;TrustServerCertificate=yes;'
 };
 
 let pool;
