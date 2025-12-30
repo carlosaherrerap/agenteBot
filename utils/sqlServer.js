@@ -1,27 +1,7 @@
 const sql = require('mssql/msnodesqlv8');
 
-//Configuracion para autenticacion de Sql Server
-
-// const config = {
-//     user: process.env.MSSQL_USER || 'sa',
-//     password: process.env.MSSQL_PASSWORD || 'Informa2025$$',
-//     server: process.env.MSSQL_SERVER || '192.168.18.117',
-//     database: process.env.MSSQL_DB || 'ContextBot',
-//     options: {
-//         encrypt: false, // para conexiones sin TLS
-//         trustServerCertificate: true,
-//         enableArithAbort: true,
-//     },
-//     pool: {
-//         max: 10,
-//         min: 0,
-//         idleTimeoutMillis: 30000,
-//     },
-// };
-
-// Configuración para Autenticación de Windows usando msnodesqlv8
 const config = {
-    connectionString: 'Driver={ODBC Driver 18 for SQL Server};Server=localhost\\SQLEXPRESS;Database=ContextBot;Trusted_Connection=yes;TrustServerCertificate=yes;'
+    connectionString: 'Driver={ODBC Driver 18 for SQL Server};Server=192.168.18.117;Database=ContextBot;UID=sa;PWD=Informa2025$$;Encrypt=no;TrustServerCertificate=yes;'
 };
 
 let pool;
@@ -34,19 +14,80 @@ async function getPool() {
 }
 
 /**
- * Ejecuta una consulta parametrizada contra SQL Server.
- * @param {string} queryString - Sentencia SQL con parámetros @p0, @p1, ...
- * @param {Array} params - Valores de los parámetros en orden.
- * @returns {Promise<Array>} - Conjunto de filas resultantes.
+ * Execute a parameterized query.
+ * Uses proper input binding for ODBC driver.
  */
 async function query(queryString, params = []) {
     const p = await getPool();
     const request = p.request();
+
     params.forEach((value, idx) => {
-        request.input(`p${idx}`, value);
+        // Determine SQL type based on value type
+        if (value === null || value === undefined) {
+            request.input(`p${idx}`, sql.NVarChar, null);
+        } else if (typeof value === 'number') {
+            request.input(`p${idx}`, sql.Int, value);
+        } else {
+            request.input(`p${idx}`, sql.NVarChar, String(value));
+        }
     });
+
     const result = await request.query(queryString);
-    return result.recordset;
+    return result.recordset || [];
 }
 
-module.exports = { query };
+/**
+ * Execute a raw query without parameters (for simple operations).
+ */
+async function rawQuery(queryString) {
+    const p = await getPool();
+    const result = await p.request().query(queryString);
+    return result.recordset || [];
+}
+
+/**
+ * Escape a string for safe SQL insertion (prevent SQL injection).
+ */
+function escape(str) {
+    if (str === null || str === undefined) return 'NULL';
+    return "'" + String(str).replace(/'/g, "''") + "'";
+}
+
+/**
+ * Helper for cache operations using raw queries (workaround for ODBC parameter issues).
+ */
+async function upsertCache(jid, dni, clientData) {
+    const p = await getPool();
+    const escapedJid = escape(jid);
+    const escapedDni = escape(dni);
+    const escapedData = escape(typeof clientData === 'string' ? clientData : JSON.stringify(clientData));
+
+    // First try to update
+    const updateResult = await p.request().query(`
+        UPDATE BotCache 
+        SET dni = ${escapedDni}, clientData = ${escapedData}, lastUpdated = GETDATE() 
+        WHERE jid = ${escapedJid}
+    `);
+
+    // If no rows affected, insert
+    if (updateResult.rowsAffected[0] === 0) {
+        await p.request().query(`
+            INSERT INTO BotCache (jid, dni, clientData) 
+            VALUES (${escapedJid}, ${escapedDni}, ${escapedData})
+        `);
+    }
+
+    return true;
+}
+
+/**
+ * Get cache data for a JID.
+ */
+async function getCache(jid) {
+    const p = await getPool();
+    const escapedJid = escape(jid);
+    const result = await p.request().query(`SELECT clientData, dni FROM BotCache WHERE jid = ${escapedJid}`);
+    return result.recordset.length > 0 ? result.recordset[0] : null;
+}
+
+module.exports = { query, rawQuery, escape, upsertCache, getCache };
