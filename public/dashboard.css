@@ -237,6 +237,30 @@ body {
     font-size: 13px;
 }
 
+.chat-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.status-indicators {
+    display: flex;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+}
+
+.status-indicators .indicator {
+    font-size: 16px;
+    opacity: 0.5;
+    transition: opacity 0.3s ease;
+}
+
+.status-indicators .indicator.connected {
+    opacity: 1;
+}
+
 .btn-toggle {
     display: flex;
     align-items: center;
@@ -261,6 +285,27 @@ body {
     background: var(--accent);
 }
 
+.btn-logout {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: linear-gradient(135deg, #ff6b6b, #ee5a5a);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.btn-logout:hover {
+    background: linear-gradient(135deg, #ff5252, #e53935);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4);
+}
+
 .status-dot {
     width: 10px;
     height: 10px;
@@ -274,8 +319,15 @@ body {
 }
 
 @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
 }
 
 /* ==================== MESSAGES ==================== */
@@ -467,7 +519,7 @@ body {
         position: absolute;
         z-index: 10;
     }
-    
+
     .main-content {
         display: none;
     }

@@ -14,22 +14,86 @@ const chatAvatar = document.getElementById('chatAvatar');
 const messagesContainer = document.getElementById('messagesContainer');
 const welcomeScreen = document.getElementById('welcomeScreen');
 const btnToggleBot = document.getElementById('btnToggleBot');
+const btnLogout = document.getElementById('btnLogout');
 const textInput = document.getElementById('textInput');
 const btnSend = document.getElementById('btnSend');
 const inputHint = document.getElementById('inputHint');
 
+// Status indicators
+const indSQL = document.getElementById('indSQL');
+const indRedis = document.getElementById('indRedis');
+const indWA = document.getElementById('indWA');
+
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
     loadChats();
-    setInterval(loadChats, 3000); // Refresh chat list every 3 seconds
+    checkSystemStatus();
+    setInterval(loadChats, 3000);
+    setInterval(checkSystemStatus, 5000);
 
     // Event listeners
     searchInput.addEventListener('input', filterChats);
     btnToggleBot.addEventListener('click', toggleBot);
+    btnLogout.addEventListener('click', logoutSession);
     btnSend.addEventListener('click', sendMessage);
     textInput.addEventListener('keydown', handleKeyDown);
     textInput.addEventListener('input', autoResize);
 });
+
+// ==================== SYSTEM STATUS ====================
+async function checkSystemStatus() {
+    try {
+        const response = await fetch('/api/connection-status');
+        const data = await response.json();
+
+        // Update indicators
+        updateIndicator(indSQL, data.sql);
+        updateIndicator(indRedis, data.redis);
+        updateIndicator(indWA, data.whatsapp);
+
+        // If WhatsApp disconnected, redirect to QR page
+        if (!data.whatsapp && data.state === 'disconnected') {
+            // Give it a moment in case of temporary disconnect
+            setTimeout(async () => {
+                const recheck = await fetch('/api/connection-status');
+                const recheckData = await recheck.json();
+                if (!recheckData.whatsapp) {
+                    window.location.href = '/';
+                }
+            }, 3000);
+        }
+    } catch (err) {
+        console.error('Error checking status:', err);
+    }
+}
+
+function updateIndicator(element, isConnected) {
+    if (isConnected) {
+        element.classList.add('connected');
+    } else {
+        element.classList.remove('connected');
+    }
+}
+
+// ==================== LOGOUT ====================
+async function logoutSession() {
+    if (!confirm('¿Seguro que deseas cerrar la sesión de WhatsApp?\nTendrás que escanear el QR nuevamente.')) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/logout', { method: 'POST' });
+        if (response.ok) {
+            window.location.href = '/';
+        } else {
+            const error = await response.json();
+            alert('Error al cerrar sesión: ' + error.error);
+        }
+    } catch (err) {
+        console.error('Error logging out:', err);
+        alert('Error al cerrar sesión');
+    }
+}
 
 // ==================== CHAT LIST ====================
 async function loadChats() {

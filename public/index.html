@@ -1,18 +1,163 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ChatBotWhatsApp QR</title>
-  <link rel="stylesheet" href="style.css" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InformaPeru - Chatbot Cobranza</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div class="container">
-    <h1>Conecta tu WhatsApp</h1>
-    <p>Escanea el código QR con la aplicación de WhatsApp para iniciar el bot.</p>
-    <img id="qr" src="/qr" alt="QR Code" />
-    <div id="status"></div>
-  </div>
-  <script src="app.js"></script>
+    <div class="container">
+        <div class="card">
+            <div class="logo">
+                <span class="logo-icon">🤖</span>
+                <h1>Max</h1>
+                <p class="subtitle">Asistente Virtual de Cobranzas</p>
+            </div>
+            
+            <!-- Estados de conexión -->
+            <div id="connectionStates">
+                <!-- Estado: Esperando QR -->
+                <div id="stateQR" class="connection-state active">
+                    <div class="qr-container">
+                        <img id="qrImage" src="/qr" alt="QR Code" onerror="this.style.display='none'"/>
+                        <div id="qrPlaceholder" class="qr-placeholder">
+                            <div class="spinner"></div>
+                            <p>Generando código QR...</p>
+                        </div>
+                    </div>
+                    <p class="instruction">Escanea el código QR con <strong>WhatsApp</strong></p>
+                    <p class="hint">Abre WhatsApp > Dispositivos vinculados > Vincular dispositivo</p>
+                </div>
+                
+                <!-- Estado: Conectando -->
+                <div id="stateConnecting" class="connection-state">
+                    <div class="spinner large"></div>
+                    <p class="connecting-text">Conectando a WhatsApp...</p>
+                    <p class="hint">Por favor espera un momento</p>
+                </div>
+                
+                <!-- Estado: Conectado -->
+                <div id="stateConnected" class="connection-state">
+                    <div class="success-icon">✅</div>
+                    <p class="success-text">¡Conectado exitosamente!</p>
+                    <p class="hint">Redirigiendo al dashboard...</p>
+                </div>
+            </div>
+            
+            <!-- Status indicators -->
+            <div class="status-bar">
+                <div class="status-item" id="statusSQL">
+                    <span class="status-dot"></span>
+                    <span>SQL Server</span>
+                </div>
+                <div class="status-item" id="statusRedis">
+                    <span class="status-dot"></span>
+                    <span>Redis</span>
+                </div>
+                <div class="status-item" id="statusWA">
+                    <span class="status-dot"></span>
+                    <span>WhatsApp</span>
+                </div>
+            </div>
+        </div>
+        
+        <footer class="footer">
+            <p>InformaPeru © 2026 - Sistema de Cobranzas</p>
+        </footer>
+    </div>
+    
+    <script>
+        const qrImage = document.getElementById('qrImage');
+        const qrPlaceholder = document.getElementById('qrPlaceholder');
+        const stateQR = document.getElementById('stateQR');
+        const stateConnecting = document.getElementById('stateConnecting');
+        const stateConnected = document.getElementById('stateConnected');
+        
+        let currentState = 'disconnected';
+        
+        // Check connection status every 2 seconds
+        async function checkStatus() {
+            try {
+                const response = await fetch('/api/connection-status');
+                const data = await response.json();
+                
+                // Update status dots
+                updateStatusDot('statusSQL', data.sql);
+                updateStatusDot('statusRedis', data.redis);
+                updateStatusDot('statusWA', data.whatsapp);
+                
+                // Handle state changes
+                if (data.state !== currentState) {
+                    currentState = data.state;
+                    updateConnectionState(data.state);
+                }
+                
+                // Redirect to dashboard when connected
+                if (data.whatsapp) {
+                    setTimeout(() => {
+                        window.location.href = '/dashboard.html';
+                    }, 1500);
+                }
+            } catch (err) {
+                console.error('Error checking status:', err);
+            }
+        }
+        
+        function updateStatusDot(elementId, isConnected) {
+            const element = document.getElementById(elementId);
+            const dot = element.querySelector('.status-dot');
+            if (isConnected) {
+                dot.classList.add('connected');
+                dot.classList.remove('disconnected');
+            } else {
+                dot.classList.remove('connected');
+                dot.classList.add('disconnected');
+            }
+        }
+        
+        function updateConnectionState(state) {
+            // Hide all states
+            stateQR.classList.remove('active');
+            stateConnecting.classList.remove('active');
+            stateConnected.classList.remove('active');
+            
+            // Show appropriate state
+            switch(state) {
+                case 'qr':
+                case 'disconnected':
+                    stateQR.classList.add('active');
+                    refreshQR();
+                    break;
+                case 'connecting':
+                    stateConnecting.classList.add('active');
+                    break;
+                case 'connected':
+                    stateConnected.classList.add('active');
+                    break;
+            }
+        }
+        
+        function refreshQR() {
+            qrImage.src = '/qr?' + new Date().getTime();
+        }
+        
+        // QR image load handlers
+        qrImage.onload = function() {
+            qrPlaceholder.style.display = 'none';
+            qrImage.style.display = 'block';
+        };
+        
+        qrImage.onerror = function() {
+            qrPlaceholder.style.display = 'flex';
+            qrImage.style.display = 'none';
+        };
+        
+        // Initial check and start polling
+        checkStatus();
+        setInterval(checkStatus, 2000);
+        setInterval(refreshQR, 20000); // Refresh QR every 20 seconds
+    </script>
 </body>
 </html>

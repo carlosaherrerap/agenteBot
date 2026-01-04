@@ -1,11 +1,43 @@
+/**
+ * SQL Server Connection and Query Module
+ * Connects to ContextBot database and BotHuancayo.Base table
+ */
+require('dotenv').config();
 const sql = require('mssql/msnodesqlv8');
+const logger = require('./logger');
 
-const config = {
-    connectionString: 'Driver={ODBC Driver 18 for SQL Server};Server=192.168.18.117;Database=ContextBot;UID=sa;PWD=Informa2025$$;Encrypt=no;TrustServerCertificate=yes;'
+// Connection status tracking
+let connectionStatus = {
+    server: false,
+    database: false,
+    table: false,
+    lastError: null
 };
 
-let pool;
+// Database configuration
+const config = {
+    connectionString: `Driver={ODBC Driver 18 for SQL Server};Server=${process.env.SQL_HOST || '192.168.18.117'};Database=${process.env.SQL_DATABASE || 'ContextBot'};UID=${process.env.SQL_USER || 'sa'};PWD=${process.env.SQL_PASSWORD || ''};Encrypt=no;TrustServerCertificate=yes;`
+};
 
+let pool = null;
+
+// Estado filter from environment
+const ESTADO_FILTRO = parseInt(process.env.ESTADO_FILTRO) || 1;
+
+// Phone fields to search in
+const PHONE_FIELDS = [
+    'TELEFONO_FIJO_TITULAR',
+    'TELEFONO_TITULAR',
+    'TELEFONO_REPRESENTANTE',
+    'TELEFONO_CONYUGE',
+    'TELEFONO_CODEUDOR',
+    'TELEFONO_FIADOR',
+    'TELEFONO_CONY_FIADOR'
+];
+
+/**
+ * Get or create connection pool
+ */
 async function getPool() {
     if (!pool) {
         pool = await sql.connect(config);
@@ -14,15 +46,109 @@ async function getPool() {
 }
 
 /**
- * Execute a parameterized query.
- * Uses proper input binding for ODBC driver.
+ * Connect and verify all phases (Server → DB → Table)
+ * @returns {object} Connection status with details
+ */
+async function connect() {
+    logger.info('SQL', 'Iniciando verificación de conexión en 3 fases...');
+
+    connectionStatus = {
+        server: false,
+        database: false,
+        table: false,
+        lastError: null
+    };
+
+    try {
+        // Phase 1: Connect to server
+        logger.info('SQL', 'Fase 1: Conectando al servidor...');
+        pool = await sql.connect(config);
+        connectionStatus.server = true;
+        logger.success('SQL', `Conectado a ${process.env.SQL_HOST || '192.168.18.117'}`);
+
+        // Phase 2: Verify database
+        logger.info('SQL', 'Fase 2: Verificando base de datos...');
+        const dbCheck = await pool.request().query(`SELECT DB_NAME() as dbName`);
+        if (dbCheck.recordset[0].dbName === (process.env.SQL_DATABASE || 'ContextBot')) {
+            connectionStatus.database = true;
+            logger.success('SQL', `Base de datos: ${process.env.SQL_DATABASE || 'ContextBot'}`);
+        }
+
+        // Phase 3: Verify table exists
+        logger.info('SQL', 'Fase 3: Verificando tabla...');
+        const tableName = process.env.SQL_TABLE || 'BotHuancayo.Base';
+        const tableCheck = await pool.request().query(`
+            SELECT TOP 1 * FROM [${tableName.replace('.', '].[')}]
+        `);
+        connectionStatus.table = true;
+        logger.success('SQL', `Tabla encontrada: ${tableName}`);
+        logger.debug('SQL', `Campos: ${Object.keys(tableCheck.recordset[0] || {}).join(', ')}`);
+
+        // Create BotCache table if not exists
+        await pool.request().query(`
+            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'BotCache')
+            CREATE TABLE BotCache (
+                jid NVARCHAR(100) PRIMARY KEY,
+                dni NVARCHAR(20),
+                clientData NVARCHAR(MAX),
+                lastUpdated DATETIME DEFAULT GETDATE()
+            )
+        `);
+        logger.debug('SQL', 'Tabla BotCache verificada');
+
+        return getConnectionStatus();
+
+    } catch (err) {
+        connectionStatus.lastError = err.message;
+
+        // Determine which phase failed
+        if (!connectionStatus.server) {
+            logger.error('SQL', 'FASE 1 FALLIDA: No se pudo conectar al servidor', err);
+        } else if (!connectionStatus.database) {
+            logger.error('SQL', 'FASE 2 FALLIDA: Base de datos no encontrada', err);
+        } else if (!connectionStatus.table) {
+            logger.error('SQL', 'FASE 3 FALLIDA: Tabla no encontrada', err);
+        }
+
+        // Log JSON error detail
+        console.log('\n' + JSON.stringify({
+            CONEXION_SQL_SERVER: connectionStatus.server,
+            CONEXION_BASE_DATOS: connectionStatus.database,
+            CONEXION_TABLA: connectionStatus.table,
+            ERROR: connectionStatus.lastError
+        }, null, 2) + '\n');
+
+        return getConnectionStatus();
+    }
+}
+
+/**
+ * Get current connection status
+ */
+function getConnectionStatus() {
+    return {
+        CONEXION_SQL_SERVER: connectionStatus.server,
+        CONEXION_BASE_DATOS: connectionStatus.database,
+        CONEXION_TABLA: connectionStatus.table,
+        ERROR: connectionStatus.lastError
+    };
+}
+
+/**
+ * Check if fully connected
+ */
+function isConnected() {
+    return connectionStatus.server && connectionStatus.database && connectionStatus.table;
+}
+
+/**
+ * Execute a parameterized query
  */
 async function query(queryString, params = []) {
     const p = await getPool();
     const request = p.request();
 
     params.forEach((value, idx) => {
-        // Determine SQL type based on value type
         if (value === null || value === undefined) {
             request.input(`p${idx}`, sql.NVarChar, null);
         } else if (typeof value === 'number') {
@@ -37,16 +163,7 @@ async function query(queryString, params = []) {
 }
 
 /**
- * Execute a raw query without parameters (for simple operations).
- */
-async function rawQuery(queryString) {
-    const p = await getPool();
-    const result = await p.request().query(queryString);
-    return result.recordset || [];
-}
-
-/**
- * Escape a string for safe SQL insertion (prevent SQL injection).
+ * Escape string for SQL (prevent injection)
  */
 function escape(str) {
     if (str === null || str === undefined) return 'NULL';
@@ -54,7 +171,113 @@ function escape(str) {
 }
 
 /**
- * Helper for cache operations using raw queries (workaround for ODBC parameter issues).
+ * Find client by phone number in any of the 7 phone fields
+ * @param {string} phone - Phone number to search (9 digits)
+ * @returns {object|null} Client data or null
+ */
+async function findByPhone(phone) {
+    if (!phone || phone.length !== 9) return null;
+
+    try {
+        const tableName = process.env.SQL_TABLE || 'BotHuancayo.Base';
+        const conditions = PHONE_FIELDS.map(field =>
+            `REPLACE(REPLACE(REPLACE([${field}], ' ', ''), '-', ''), '+', '') LIKE '%${phone}%'`
+        ).join(' OR ');
+
+        const queryStr = `
+            SELECT TOP 1 * 
+            FROM [${tableName.replace('.', '].[')}]
+            WHERE ESTADO = ${ESTADO_FILTRO}
+            AND (${conditions})
+        `;
+
+        logger.debug('SQL', `Buscando teléfono: ${phone}`);
+        const result = await query(queryStr);
+
+        if (result.length > 0) {
+            logger.success('SQL', `Cliente encontrado por teléfono: ${result[0].NOMBRE_CLIENTE}`);
+            return result[0];
+        }
+
+        logger.debug('SQL', `Teléfono no encontrado: ${phone}`);
+        return null;
+
+    } catch (err) {
+        logger.error('SQL', 'Error buscando por teléfono', err);
+        return null;
+    }
+}
+
+/**
+ * Find client by account number (18 digits)
+ * @param {string} account - Account number (CUENTA_CREDITO)
+ * @returns {object|null} Client data or null
+ */
+async function findByAccount(account) {
+    if (!account || account.length !== 18) return null;
+
+    try {
+        const tableName = process.env.SQL_TABLE || 'BotHuancayo.Base';
+        const queryStr = `
+            SELECT TOP 1 * 
+            FROM [${tableName.replace('.', '].[')}]
+            WHERE ESTADO = ${ESTADO_FILTRO}
+            AND CUENTA_CREDITO = @p0
+        `;
+
+        logger.debug('SQL', `Buscando cuenta: ${account}`);
+        const result = await query(queryStr, [account]);
+
+        if (result.length > 0) {
+            logger.success('SQL', `Cliente encontrado por cuenta: ${result[0].NOMBRE_CLIENTE}`);
+            return result[0];
+        }
+
+        logger.debug('SQL', `Cuenta no encontrada: ${account}`);
+        return null;
+
+    } catch (err) {
+        logger.error('SQL', 'Error buscando por cuenta', err);
+        return null;
+    }
+}
+
+/**
+ * Find client by document (DNI/RUC)
+ * @param {string} doc - Document number
+ * @returns {object|null} Client data or null
+ */
+async function findByDocument(doc) {
+    if (!doc) return null;
+
+    try {
+        const tableName = process.env.SQL_TABLE || 'BotHuancayo.Base';
+        const queryStr = `
+            SELECT TOP 1 * 
+            FROM [${tableName.replace('.', '].[')}]
+            WHERE ESTADO = ${ESTADO_FILTRO}
+            AND DOCUMENTO = @p0
+        `;
+
+        logger.debug('SQL', `Buscando documento: ${doc}`);
+        const result = await query(queryStr, [doc]);
+
+        if (result.length > 0) {
+            logger.success('SQL', `Cliente encontrado por documento: ${result[0].NOMBRE_CLIENTE}`);
+            return result[0];
+        }
+
+        logger.debug('SQL', `Documento no encontrado: ${doc}`);
+        return null;
+
+    } catch (err) {
+        logger.error('SQL', 'Error buscando por documento', err);
+        return null;
+    }
+}
+
+/**
+ * Cache operations
  */
 async function upsertCache(jid, dni, clientData) {
     const p = await getPool();
@@ -62,14 +285,12 @@ async function upsertCache(jid, dni, clientData) {
     const escapedDni = escape(dni);
     const escapedData = escape(typeof clientData === 'string' ? clientData : JSON.stringify(clientData));
 
-    // First try to update
     const updateResult = await p.request().query(`
         UPDATE BotCache 
         SET dni = ${escapedDni}, clientData = ${escapedData}, lastUpdated = GETDATE() 
         WHERE jid = ${escapedJid}
     `);
 
-    // If no rows affected, insert
     if (updateResult.rowsAffected[0] === 0) {
         await p.request().query(`
             INSERT INTO BotCache (jid, dni, clientData) 
@@ -80,9 +301,6 @@ async function upsertCache(jid, dni, clientData) {
     return true;
 }
 
-/**
- * Get cache data for a JID.
- */
 async function getCache(jid) {
     const p = await getPool();
     const escapedJid = escape(jid);
@@ -90,4 +308,25 @@ async function getCache(jid) {
     return result.recordset.length > 0 ? result.recordset[0] : null;
 }
 
-module.exports = { query, rawQuery, escape, upsertCache, getCache };
+async function deleteCache(jid) {
+    const p = await getPool();
+    const escapedJid = escape(jid);
+    await p.request().query(`DELETE FROM BotCache WHERE jid = ${escapedJid}`);
+    return true;
+}
+
+module.exports = {
+    connect,
+    getConnectionStatus,
+    isConnected,
+    query,
+    escape,
+    findByPhone,
+    findByAccount,
+    findByDocument,
+    upsertCache,
+    getCache,
+    deleteCache,
+    PHONE_FIELDS,
+    ESTADO_FILTRO
+};

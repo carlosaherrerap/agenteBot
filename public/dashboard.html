@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
     <link rel="stylesheet" href="dashboard.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
+
 <body>
     <div class="dashboard">
         <!-- Sidebar - Lista de Chats -->
@@ -38,9 +40,18 @@
                     </div>
                 </div>
                 <div class="chat-actions">
+                    <div class="status-indicators">
+                        <span class="indicator" id="indSQL" title="SQL Server">🗄️</span>
+                        <span class="indicator" id="indRedis" title="Redis">📦</span>
+                        <span class="indicator" id="indWA" title="WhatsApp">📱</span>
+                    </div>
                     <button class="btn-toggle" id="btnToggleBot" disabled>
                         <span class="status-dot active"></span>
                         <span class="btn-text">Bot Activo</span>
+                    </button>
+                    <button class="btn-logout" id="btnLogout" title="Cerrar sesión WhatsApp">
+                        <span>🚪</span>
+                        <span class="btn-text">Cerrar Sesión</span>
                     </button>
                 </div>
             </header>
@@ -57,15 +68,11 @@
             <!-- Input de mensaje -->
             <footer class="message-input" id="messageInput">
                 <div class="input-wrapper">
-                    <textarea 
-                        id="textInput" 
-                        placeholder="El bot está activo. Pausalo para escribir manualmente..."
-                        disabled
-                        rows="1"
-                    ></textarea>
+                    <textarea id="textInput" placeholder="El bot está activo. Pausalo para escribir manualmente..."
+                        disabled rows="1"></textarea>
                     <button class="btn-send" id="btnSend" disabled>
                         <svg viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
                         </svg>
                     </button>
                 </div>
@@ -78,4 +85,5 @@
 
     <script src="dashboard.js"></script>
 </body>
+
 </html>

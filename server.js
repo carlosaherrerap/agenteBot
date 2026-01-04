@@ -1,34 +1,37 @@
+/**
+ * WhatsApp Chatbot Server - InformaPeru Cobranza
+ * Main entry point for the application
+ */
 require('dotenv').config();
 const express = require('express');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const path = require('path');
 const fs = require('fs');
 const { runFlow, isBotPaused, toggleBotPause } = require('./flowEngine');
-
-// Check context expansion on startup
-if (process.env.BOT_CONTEXT) {
-    console.log('BOT_CONTEXT detected. Length:', process.env.BOT_CONTEXT.length);
-}
+const logger = require('./utils/logger');
+const sql = require('./utils/sqlServer');
+const redis = require('./utils/redis');
 
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-let sock;
-let server;
+let sock = null;
+let server = null;
+let whatsappConnected = false;
+let connectionState = 'disconnected'; // disconnected, connecting, connected
 
 // ==================== CHAT STORAGE ====================
-const activeChats = new Map(); // jid -> { messages: [], lastActivity, phoneNumber, name }
+const activeChats = new Map();
 
 function getChat(jid) {
     if (!activeChats.has(jid)) {
-        // Extract phone number from jid (format: 51999999999@s.whatsapp.net)
         const phoneNumber = jid.split('@')[0];
         activeChats.set(jid, {
             messages: [],
             lastActivity: Date.now(),
             phoneNumber: phoneNumber,
-            name: phoneNumber // Initially just the number
+            name: phoneNumber
         });
     }
     return activeChats.get(jid);
@@ -38,13 +41,12 @@ function addMessageToChat(jid, from, text, msgId = null) {
     const chat = getChat(jid);
     chat.messages.push({
         id: msgId || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        from: from, // 'client', 'bot', 'human'
+        from: from,
         text: text,
         timestamp: Date.now()
     });
     chat.lastActivity = Date.now();
 
-    // Limit messages per chat
     if (chat.messages.length > 100) {
         chat.messages = chat.messages.slice(-100);
     }
@@ -52,32 +54,38 @@ function addMessageToChat(jid, from, text, msgId = null) {
 
 // ==================== AUTH FUNCTIONS ====================
 function clearAuth() {
-    console.log('Clearing auth folder for a fresh session...');
+    logger.warn('WHATSAPP', 'Limpiando carpeta de autenticación...');
     try {
         if (fs.existsSync(path.resolve(__dirname, 'auth'))) {
             fs.rmSync(path.resolve(__dirname, 'auth'), { recursive: true, force: true });
         }
         fs.mkdirSync(path.resolve(__dirname, 'auth'));
+        logger.success('WHATSAPP', 'Carpeta auth limpiada');
     } catch (err) {
-        console.error('Error clearing auth folder:', err.message);
+        logger.error('WHATSAPP', 'Error limpiando auth', err);
     }
 }
 
 // ==================== WHATSAPP CONNECTION ====================
 async function startWhatsApp() {
-    // MANDATORY check for SQL Server (Your database)
-    const sql = require('./utils/sqlServer');
-    try {
-        const rows = await sql.query("SELECT TOP 1 * FROM [dbo].[HuancayoBase]");
-        console.log('✅ SQL Server Connection Successful (HuancayoBase).');
-        console.log('Fields detected:', Object.keys(rows[0]).join(', '));
-    } catch (err) {
-        console.error('❌ CRITICAL ERROR: SQL Server not reachable.');
-        console.error('The bot cannot start without access to its main database (ContextBot).');
-        console.error('Error Details:', err.message);
+    // Show banner
+    logger.banner();
+
+    // Connect to SQL Server first
+    logger.info('SYSTEM', 'Verificando conexiones...');
+    const sqlStatus = await sql.connect();
+
+    if (!sql.isConnected()) {
+        logger.error('SYSTEM', 'CRÍTICO: SQL Server no conectado. El bot no puede iniciar.');
+        console.log('\n' + JSON.stringify(sqlStatus, null, 2) + '\n');
         process.exit(1);
     }
 
+    // Connect to Redis
+    await redis.connect();
+
+    // Start WhatsApp
+    connectionState = 'connecting';
     const { state, saveCreds } = await useMultiFileAuthState(path.resolve(__dirname, 'auth'));
 
     const versionInfo = await fetchLatestBaileysVersion();
@@ -96,36 +104,60 @@ async function startWhatsApp() {
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
+        // Log all connection updates for debugging
+        logger.info('WHATSAPP', `Estado de conexión: ${connection || 'actualizando...'}`);
+
         if (qr) {
+            connectionState = 'qr';
+            logger.success('WHATSAPP', '📱 QR generado - Escanea con WhatsApp');
+            logger.info('WHATSAPP', '⏳ El QR expira en 60 segundos, escanea rápido');
             const qrPath = path.resolve(__dirname, 'public', 'qr.png');
             const QRCode = require('qrcode');
             QRCode.toFile(qrPath, qr, { width: 300 }, (err) => {
-                if (err) console.error('QR generation error', err);
+                if (err) logger.error('WHATSAPP', 'Error generando QR', err);
             });
         }
 
         if (connection === 'close') {
+            connectionState = 'disconnected';
+            whatsappConnected = false;
             const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const errorMessage = lastDisconnect?.error?.message || 'Sin mensaje';
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
-            console.log('Connection closed. Status code:', statusCode, '| Reconnecting:', shouldReconnect);
+            logger.warn('WHATSAPP', `Conexión cerrada. Código: ${statusCode}`);
+            logger.warn('WHATSAPP', `Motivo: ${errorMessage}`);
+
+            // Show full error details
+            if (lastDisconnect?.error) {
+                console.log('\n[WHATSAPP ERROR DETAILS]:', JSON.stringify({
+                    statusCode,
+                    message: errorMessage,
+                    shouldReconnect
+                }, null, 2), '\n');
+            }
 
             if (statusCode === 401) {
-                console.log('Detected 401 Unauthorized. Clearing session for reset.');
+                logger.info('WHATSAPP', 'Sesión inválida (401) - Limpiando auth y reiniciando...');
                 clearAuth();
-                startWhatsApp();
+                setTimeout(() => startWhatsApp(), 2000);
             } else if (shouldReconnect) {
-                startWhatsApp();
+                logger.info('WHATSAPP', `Reconectando en 3 segundos...`);
+                setTimeout(() => startWhatsApp(), 3000);
             }
         } else if (connection === 'open') {
-            console.log('WhatsApp connection opened successfully');
+            connectionState = 'connected';
+            whatsappConnected = true;
+            logger.success('WHATSAPP', 'Conexión establecida correctamente');
         }
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
+
         for (const msg of messages) {
             if (!msg.message || msg.key.fromMe) continue;
+
             const from = msg.key.remoteJid;
             const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
             if (!text) continue;
@@ -133,9 +165,9 @@ async function startWhatsApp() {
             // Store incoming message
             addMessageToChat(from, 'client', text, msg.key.id);
 
-            // Check if bot is paused for this chat
+            // Check if bot is paused
             if (isBotPaused(from)) {
-                console.log(`🔴 Bot paused for ${from}, skipping auto-response`);
+                logger.debug('BOT', `Bot pausado para ${from}`);
                 continue;
             }
 
@@ -143,17 +175,54 @@ async function startWhatsApp() {
                 const response = await runFlow(text, from);
                 if (response) {
                     await sock.sendMessage(from, { text: response });
-                    // Store bot response
                     addMessageToChat(from, 'bot', response);
                 }
             } catch (err) {
-                console.error('Error running flow:', err.message);
+                logger.error('BOT', 'Error en runFlow', err);
             }
         }
     });
 }
 
 // ==================== API ENDPOINTS ====================
+
+// Get system status
+app.get('/api/status', (req, res) => {
+    res.json({
+        ...sql.getConnectionStatus(),
+        CONEXION_REDIS: redis.isRedisConnected(),
+        WHATSAPP_CONNECTED: whatsappConnected,
+        ESTADO_FILTRO: sql.ESTADO_FILTRO,
+        DEBUG_LOGS: process.env.DEBUG_LOGS === 'true'
+    });
+});
+
+// Get connection state for frontend
+app.get('/api/connection-status', (req, res) => {
+    res.json({
+        state: connectionState, // 'disconnected', 'qr', 'connecting', 'connected'
+        whatsapp: whatsappConnected,
+        sql: sql.isConnected(),
+        redis: redis.isRedisConnected()
+    });
+});
+
+// Logout WhatsApp session
+app.post('/api/logout', async (req, res) => {
+    try {
+        if (sock) {
+            await sock.logout();
+        }
+        clearAuth();
+        connectionState = 'disconnected';
+        whatsappConnected = false;
+        logger.info('WHATSAPP', 'Sesión cerrada por usuario');
+        res.json({ success: true, message: 'Sesión cerrada' });
+    } catch (err) {
+        logger.error('WHATSAPP', 'Error al cerrar sesión', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // Get all active chats
 app.get('/api/chats', (req, res) => {
@@ -170,7 +239,6 @@ app.get('/api/chats', (req, res) => {
             isPaused: isBotPaused(jid)
         });
     }
-    // Sort by last activity (most recent first)
     chats.sort((a, b) => b.lastActivity - a.lastActivity);
     res.json(chats);
 });
@@ -200,7 +268,7 @@ app.post('/api/chats/:jid/send', async (req, res) => {
         return res.status(400).json({ error: 'Message is required' });
     }
 
-    if (!sock) {
+    if (!sock || !whatsappConnected) {
         return res.status(500).json({ error: 'WhatsApp not connected' });
     }
 
@@ -209,16 +277,16 @@ app.post('/api/chats/:jid/send', async (req, res) => {
         addMessageToChat(jid, 'human', message);
         res.json({ success: true });
     } catch (err) {
-        console.error('Error sending message:', err.message);
+        logger.error('WHATSAPP', 'Error enviando mensaje', err);
         res.status(500).json({ error: err.message });
     }
 });
 
-// Toggle bot pause status for a chat
+// Toggle bot pause status
 app.post('/api/chats/:jid/toggle-bot', (req, res) => {
     const jid = decodeURIComponent(req.params.jid);
     const isPaused = toggleBotPause(jid);
-    console.log(`🔄 Bot ${isPaused ? 'PAUSED' : 'ACTIVATED'} for ${jid}`);
+    logger.info('BOT', `Bot ${isPaused ? 'PAUSADO' : 'ACTIVADO'} para ${jid}`);
     res.json({ isPaused });
 });
 
@@ -240,10 +308,13 @@ app.get('/qr', (req, res) => {
 
 // ==================== SERVER START ====================
 const PORT = process.env.PORT || 3000;
-server = app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+server = app.listen(PORT, () => {
+    logger.success('SYSTEM', `Servidor iniciado en puerto ${PORT}`);
+    logger.info('SYSTEM', `Dashboard: http://localhost:${PORT}/dashboard.html`);
+});
 
 startWhatsApp().catch(err => {
-    console.error('Fatal startup error:', err.message);
+    logger.error('SYSTEM', 'Error fatal al iniciar', err);
     if (err.message.includes('401')) {
         clearAuth();
         process.exit(1);
@@ -252,13 +323,14 @@ startWhatsApp().catch(err => {
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-    console.log('\nGracefully shutting down...');
+    console.log('\n');
+    logger.info('SYSTEM', 'Cerrando servidor...');
     if (sock) {
         sock.logout().catch(() => { });
         sock.end();
     }
     server.close(() => {
-        console.log('Server port closed. Goodbye!');
+        logger.success('SYSTEM', 'Servidor cerrado. ¡Hasta luego! 👋');
         process.exit(0);
     });
 });

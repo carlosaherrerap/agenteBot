@@ -1,7 +1,7 @@
 # Dependencies
 node_modules/
 
-# Environment variables
+# Environment variables (IMPORTANTE: copiar .env.example a .env)
 .env
 .env.local
 .env.*.local
@@ -17,6 +17,9 @@ auth/
 
 # QR codes
 public/qr.png
+
+# Data files (teléfonos nuevos)
+data_nueva_telf.xlsx
 
 # OS generated files
 .DS_Store
@@ -39,3 +42,4 @@ build/
 tmp/
 temp/
 *.tmp
+

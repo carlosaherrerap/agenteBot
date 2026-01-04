@@ -1,14 +1,15 @@
+/**
+ * Flow Engine - Main Chatbot Logic
+ * Handles all incoming messages and conversation flow
+ */
+require('dotenv').config();
 const { getDeepseekResponse } = require('./services/deepseek');
 const { sendAdvisorEmail } = require('./services/email');
-const { getClienteByDNI, saveConversacion } = require('./services/database');
 const sql = require('./utils/sqlServer');
-const fs = require('fs');
-const path = require('path');
-
-// ==================== CONVERSATION MEMORY ====================
-const conversationHistory = new Map();
-const MAX_MESSAGES_PER_USER = 20;
-const INACTIVITY_TIMEOUT = 60 * 60 * 1000;
+const redis = require('./utils/redis');
+const excel = require('./utils/excel');
+const templates = require('./utils/templates');
+const logger = require('./utils/logger');
 
 // ==================== BOT PAUSE CONTROL ====================
 const pausedChats = new Set();
@@ -27,293 +28,276 @@ function toggleBotPause(jid) {
     }
 }
 
-// ==================== INITIALIZATION ====================
-(async () => {
-    try {
-        console.log('--- Verificando SQL Server al iniciar ---');
-        await sql.query(`
-            IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'BotCache')
-            CREATE TABLE BotCache (
-                jid NVARCHAR(100) PRIMARY KEY,
-                dni NVARCHAR(20),
-                clientData NVARCHAR(MAX),
-                lastUpdated DATETIME DEFAULT GETDATE()
-            )
-        `);
-        const cacheCount = await sql.query('SELECT COUNT(*) as total FROM BotCache');
-        console.log('✅ SQL Server & BotCache OK. Records in cache:', cacheCount[0]?.total || 0);
-    } catch (err) {
-        console.error('❌ Error inicial SQL:', err.message);
+// ==================== HELPER FUNCTIONS ====================
+
+/**
+ * Extract phone number from WhatsApp JID
+ * @param {string} jid - WhatsApp JID (format: 51999999999@s.whatsapp.net)
+ * @returns {string} Phone number without country code
+ */
+function extractPhone(jid) {
+    const full = jid.split('@')[0];
+    // Remove Peru country code (51) if present
+    if (full.startsWith('51') && full.length === 11) {
+        return full.substring(2);
     }
-})();
-
-// Load infoDb.txt for AI context
-const infoDbPath = path.resolve(__dirname, 'infoDb.txt');
-let infoDbGuide = '';
-if (fs.existsSync(infoDbPath)) {
-    infoDbGuide = fs.readFileSync(infoDbPath, 'utf8');
+    return full;
 }
 
-// ==================== CACHE FUNCTIONS ====================
+/**
+ * Check if message is from a group
+ * @param {string} jid - WhatsApp JID
+ * @returns {boolean} True if from group
+ */
+function isGroup(jid) {
+    return jid.endsWith('@g.us');
+}
 
-async function getFromCache(jid) {
-    try {
-        const cached = await sql.getCache(jid);
-        if (cached && cached.clientData) {
-            console.log(`📦 Cache HIT for ${jid}`);
-            return JSON.parse(cached.clientData);
-        }
-        console.log(`📭 Cache MISS for ${jid}`);
-        return null;
-    } catch (err) {
-        console.error('Error fetching from BotCache:', err.message);
-        return null;
+/**
+ * Validate input and determine type
+ * @param {string} input - User input
+ * @returns {object} { type: 'phone'|'account'|'invalid'|'text', value, error }
+ */
+function validateInput(input) {
+    const cleaned = input.replace(/\D/g, ''); // Remove non-digits
+
+    if (cleaned.length === 9) {
+        return { type: 'phone', value: cleaned, error: null };
     }
-}
 
-async function saveToCache(jid, dni, data) {
-    try {
-        await sql.upsertCache(jid, dni, data);
-        console.log(`💾 SAVED to cache for ${jid} (DNI: ${dni})`);
-        return true;
-    } catch (err) {
-        console.error('❌ Error saving to BotCache:', err.message);
-        return false;
+    if (cleaned.length === 18) {
+        return { type: 'account', value: cleaned, error: null };
     }
-}
 
-// ==================== CALCULATION FUNCTIONS ====================
-
-function calculateSaldoCuota(client) {
-    if (!client) return '0.00';
-    const capital = parseFloat(client.SALDO_CAPITAL_PROXIMA_CUOTA || 0);
-    const interes = parseFloat(client.SALDO_INTERES_PROXIMA_CUOTA || 0);
-    const mora = parseFloat(client.SALDO_MORA_PROXIMA_CUOTA || 0);
-    const gasto = parseFloat(client.SALDO_GASTO_PROXIMA_CUOTA || 0);
-    const congelado = parseFloat(client.SALDO_CAP_INT_CONGELADO_PROXIMA_CUOTA || 0);
-    return (capital + interes + mora + gasto + congelado).toFixed(2);
-}
-
-function getClientName(client) {
-    if (!client) return 'Cliente';
-    const fullName = client.CLIENTE_PREMIUM || client.nombre_completo || 'Cliente';
-    const parts = fullName.split(',');
-    if (parts.length > 1) {
-        return parts[1].trim().split(' ')[0];
+    if (cleaned.length > 0 && cleaned.length < 9) {
+        return { type: 'invalid', value: cleaned, error: templates.invalidPhoneLength() };
     }
-    return fullName.split(' ')[0];
-}
 
-// ==================== CONVERSATION FUNCTIONS ====================
-
-function getConversation(fromJid) {
-    if (!conversationHistory.has(fromJid)) {
-        conversationHistory.set(fromJid, {
-            messages: [],
-            lastActivity: Date.now()
-        });
+    if (cleaned.length > 9 && cleaned.length < 18) {
+        return { type: 'invalid', value: cleaned, error: templates.invalidAccountLength() };
     }
-    return conversationHistory.get(fromJid);
-}
 
-function addMessage(fromJid, role, content) {
-    const conversation = getConversation(fromJid);
-    conversation.messages.push({ role, content });
-    conversation.lastActivity = Date.now();
-    if (conversation.messages.length > MAX_MESSAGES_PER_USER) {
-        conversation.messages = conversation.messages.slice(-MAX_MESSAGES_PER_USER);
+    if (cleaned.length > 18) {
+        return { type: 'invalid', value: cleaned, error: templates.invalidAccountLength() };
     }
+
+    return { type: 'text', value: input, error: null };
 }
 
-function cleanupInactiveConversations() {
-    const now = Date.now();
-    for (const [jid, conversation] of conversationHistory.entries()) {
-        if (now - conversation.lastActivity > INACTIVITY_TIMEOUT) {
-            conversationHistory.delete(jid);
-        }
-    }
+/**
+ * Get first name from NOMBRE_CLIENTE
+ * @param {string} fullName - Full client name
+ * @returns {string} First name or full name
+ */
+function getFirstName(fullName) {
+    if (!fullName) return 'Cliente';
+    const parts = fullName.split(' ');
+    return parts[0] || fullName;
 }
-setInterval(cleanupInactiveConversations, 10 * 60 * 1000);
-
-// ==================== RESPONSE TEMPLATES ====================
-
-function getPersonalizedMenu(name) {
-    return `Hola, *${name}*. Te saludamos de *InformaPeru*\n\nSelecciona un número para realizar tu consulta:\n1. Detalles deuda\n2. Descuento\n3. Oficinas\n4. Otros`;
-}
-
-function getDebtDetails(client) {
-    const name = getClientName(client);
-    const saldoTotal = parseFloat(client.SALDO_TOTAL || 0).toFixed(2);
-    const saldoCuota = calculateSaldoCuota(client);
-    const capital = parseFloat(client.SALDO_CAPITAL_PROXIMA_CUOTA || 0).toFixed(2);
-    const mora = parseFloat(client.SALDO_MORA_PROXIMA_CUOTA || 0).toFixed(2);
-    const interes = parseFloat(client.SALDO_INTERES_PROXIMA_CUOTA || 0).toFixed(2);
-    const gasto = parseFloat(client.SALDO_GASTO_PROXIMA_CUOTA || 0).toFixed(2);
-    const ultimoPago = client.ULTIMO_PAGO || 'Sin registros';
-    const diasAtraso = client.DIAS_ATRASO || 0;
-    const atrasoMax = client.ATRASO_MAXIMO || 0;
-
-    return `*Detalles de Deuda para ${name}:*\n\n💰 Saldo Total del Crédito: S/ ${saldoTotal}\n📅 Cuota Pendiente (Capital): S/ ${capital}\n📈 Intereses: S/ ${interes}\n⚠️ Mora: S/ ${mora}\n💼 Gastos: S/ ${gasto}\n\n🧾 *Total Cuota a Pagar: S/ ${saldoCuota}*\n\n⏰ Días de atraso: ${diasAtraso} (Máx: ${atrasoMax})\n💳 Último Pago: ${ultimoPago}`;
-}
-
-// ==================== REGEX PATTERNS ====================
-const DEBT_INQUIRY_REGEX = /(cuanto debo|cuanto pago|cual es mi deuda|quiero pagar|pagar|deuda|saldo|monto)/i;
-const GREETING_ONLY_REGEX = /^(hola|buen(as)? (noches|tardes|dias)|buenos dias|hey|buenas)$/i;
-const IDENTIFIER_REGEX = /\b(\d{8,})\b/;
-const COMPLEX_DEBT_REGEX = /(cuota|pendiente|mora|total|pagar|adicional|capital|interes|debo)/i;
-const ADVISOR_REGEX = /(asesor|human|hablar con|agente|comunicarme|ayuda)/i;
 
 // ==================== MAIN FLOW ====================
 
+/**
+ * Process incoming message
+ * @param {string} incomingText - Message text
+ * @param {string} fromJid - WhatsApp JID
+ * @returns {string|null} Response or null
+ */
 async function runFlow(incomingText, fromJid) {
     const text = incomingText.trim();
     const lowText = text.toLowerCase();
 
-    console.log(`\n📩 [${fromJid}] Mensaje: "${text}"`);
-
-    // 1. CHECK CACHE FIRST
-    let cachedClient = await getFromCache(fromJid);
-
-    // 2. GREETING ONLY (short messages like "hola", "buenas tardes")
-    if (GREETING_ONLY_REGEX.test(lowText) && !cachedClient) {
-        return 'Hola, te saluda InformaPeru. 👋 Si tienes alguna duda o consulta házmela saber adjuntando tu DNI, RUC o CUENTA (p. ejem: 75747335)';
+    // ========== 1. IGNORE GROUPS ==========
+    if (isGroup(fromJid)) {
+        logger.debug('BOT', `Mensaje de grupo ignorado: ${fromJid}`);
+        return null;
     }
 
-    // 3. DEBT INQUIRY WITHOUT IDENTIFIER
-    if (DEBT_INQUIRY_REGEX.test(lowText) && !cachedClient && !IDENTIFIER_REGEX.test(text)) {
-        const responses = [
-            'Por favor, bríndame tu DNI para verificar en el sistema. 🔍',
-            'Hola, te saluda InformaPeru. Necesito tu DNI, RUC o CUENTA.',
-            'Hola, te saluda InformaPeru, bríndame tu DNI para verificar en el sistema.'
-        ];
-        return responses[Math.floor(Math.random() * responses.length)];
+    // Extract phone from JID
+    const clientPhone = extractPhone(fromJid);
+
+    // Log incoming message
+    logger.info('BOT', `📩 Mensaje de ${clientPhone}: "${text}"`);
+
+    // ========== 2. CHECK REDIS CACHE ==========
+    let session = await redis.getSession(fromJid);
+    let client = session?.client || null;
+
+    if (session) {
+        logger.debug('REDIS', `Sesión activa encontrada para ${clientPhone}`);
+        // Extend session on activity
+        await redis.extendSession(fromJid);
     }
 
-    // 4. IDENTIFIER DETECTION (DNI/RUC/CUENTA)
-    const idMatch = text.match(IDENTIFIER_REGEX);
-    if (idMatch) {
-        const identifier = idMatch[1];
-        console.log(`🔍 Identifier detected: ${identifier}`);
+    // ========== 3. FIRST CONTACT - SEARCH BY PHONE ==========
+    if (!client) {
+        logger.phone(clientPhone, false);
 
-        // If client is already cached with same DNI, return menu directly
-        if (cachedClient && (cachedClient.NRO_DNI === identifier || cachedClient.NRO_RUC === identifier)) {
-            console.log('⚡ Using cached data - returning menu');
-            return getPersonalizedMenu(getClientName(cachedClient));
+        // Search phone in database
+        client = await sql.findByPhone(clientPhone);
+
+        if (client) {
+            // Found by phone - save session and greet with name
+            logger.phone(clientPhone, true);
+            logger.success('BOT', `Cliente identificado: ${client.NOMBRE_CLIENTE}`);
+
+            await redis.setSession(fromJid, {
+                client,
+                identified: true,
+                identifiedBy: 'phone'
+            });
+
+            return templates.greetingWithName(client.NOMBRE_CLIENTE);
+        } else {
+            // Phone not found - save to Excel and ask for ID
+            excel.appendNewPhone({
+                CUENTA_CREDITO: '',
+                NOMBRE_CLIENTE: '',
+                telefono_nuevo: clientPhone
+            });
+
+            // Save partial session
+            await redis.setSession(fromJid, {
+                client: null,
+                identified: false,
+                waitingFor: 'document'
+            });
+
+            return templates.greetingNeutral();
+        }
+    }
+
+    // ========== 4. IF WAITING FOR DOCUMENT/ACCOUNT ==========
+    if (session && !session.identified && session.waitingFor === 'document') {
+        const validation = validateInput(text);
+
+        if (validation.type === 'invalid') {
+            return validation.error;
         }
 
-        // Fetch from HuancayoBase
-        const result = await getClienteByDNI(identifier);
-        if (result.success && result.cliente) {
-            const saved = await saveToCache(fromJid, identifier, result.cliente);
-            if (saved) {
-                cachedClient = result.cliente; // Update local reference
-                return getPersonalizedMenu(getClientName(result.cliente));
+        if (validation.type === 'phone') {
+            // Search by phone
+            client = await sql.findByPhone(validation.value);
+        } else if (validation.type === 'account') {
+            // Search by account
+            client = await sql.findByAccount(validation.value);
+        }
+
+        if (client) {
+            // Client found - update session
+            await redis.setSession(fromJid, {
+                client,
+                identified: true,
+                identifiedBy: validation.type
+            });
+
+            logger.success('BOT', `Cliente identificado por ${validation.type}: ${client.NOMBRE_CLIENTE}`);
+            return templates.menuOptions(getFirstName(client.NOMBRE_CLIENTE));
+        } else {
+            // Still not found
+            if (validation.type === 'phone') {
+                // Save new phone and ask for account
+                excel.appendNewPhone({
+                    CUENTA_CREDITO: '',
+                    NOMBRE_CLIENTE: '',
+                    telefono_nuevo: validation.value
+                });
+                return templates.askForAccount();
             }
+            // Account not found = no debt
+            return templates.noDebtFound();
         }
-
-        return 'Lo siento, no encontré información asociada a ese número. Por favor verifica que esté correcto.';
     }
 
-    // 5. OPTION SELECTION (1-4) - ONLY if client is identified
-    if (/^[1-4]$/.test(text) && cachedClient) {
+    // ========== 5. MENU OPTIONS (1-4) ==========
+    if (/^[1-4]$/.test(text) && client) {
         const option = parseInt(text);
-        const name = getClientName(cachedClient);
 
         switch (option) {
             case 1: // Detalles deuda
-                return getDebtDetails(cachedClient);
-            case 2: // Descuento
-                return `Hola ${name}, cuento con una campaña de descuento para ti. Escríbeme "Asesor" si deseas que un representante te brinde el porcentaje exacto de condonación.`;
-            case 3: // Oficinas
-                return `📍 *Agencias Caja Huancayo*\nTu agencia asignada es ${cachedClient.AGENCIA || 'la más cercana'}. Puedes acercarte a cualquier oficina a nivel nacional.`;
-            case 4: // Otros
-                return `Entiendo ${name}. Por favor, describe tu consulta detalladamente para derivarte con un asesor especializado.`;
+                return templates.debtDetails(client);
+            case 2: // Oficinas
+                return templates.officesInfo();
+            case 3: // Actualizar teléfono
+                return templates.updatePhoneRequest();
+            case 4: // Asesor
+                const doc = client.DOCUMENTO || 'Sin documento';
+                await sendAdvisorEmail(doc, `Solicitud de contacto - ${client.NOMBRE_CLIENTE}`);
+                return templates.advisorTransfer();
         }
     }
 
-    // 6. COMPLEX DEBT QUESTIONS (when client IS identified)
-    if (cachedClient && COMPLEX_DEBT_REGEX.test(lowText)) {
-        console.log('🧠 Complex debt question detected - using cached data');
-
-        const name = getClientName(cachedClient);
-        const capital = parseFloat(cachedClient.SALDO_CAPITAL_PROXIMA_CUOTA || 0).toFixed(2);
-        const mora = parseFloat(cachedClient.SALDO_MORA_PROXIMA_CUOTA || 0).toFixed(2);
-        const interes = parseFloat(cachedClient.SALDO_INTERES_PROXIMA_CUOTA || 0).toFixed(2);
-        const gasto = parseFloat(cachedClient.SALDO_GASTO_PROXIMA_CUOTA || 0).toFixed(2);
-        const totalCuota = calculateSaldoCuota(cachedClient);
-
-        // Check specific question patterns
-        if (lowText.includes('cuota') && lowText.includes('pendiente')) {
-            return `Hola ${name}, tu cuota pendiente (capital) es: S/ ${capital}`;
-        }
-        if (lowText.includes('mora') && (lowText.includes('adicional') || lowText.includes('total'))) {
-            return `Hola ${name}, el adicional por mora es: S/ ${mora}\n\nEl total de tu cuota incluyendo mora es: S/ ${totalCuota}`;
-        }
-        if ((lowText.includes('cuota') || lowText.includes('total')) && lowText.includes('pagar')) {
-            return `Hola ${name}, aquí está el desglose:\n\n📌 Cuota pendiente (Capital): S/ ${capital}\n⚠️ Mora: S/ ${mora}\n📈 Intereses: S/ ${interes}\n💼 Gastos: S/ ${gasto}\n\n🧾 *Total a Pagar: S/ ${totalCuota}*`;
-        }
-
-        // Default: return full debt details
-        return getDebtDetails(cachedClient);
+    // ========== 6. ADVISOR REQUEST ==========
+    const advisorRegex = /(asesor|humano|hablar con|agente|comunicarme|ayuda personal)/i;
+    if (advisorRegex.test(lowText)) {
+        const doc = client?.DOCUMENTO || 'Sin documento';
+        await sendAdvisorEmail(doc, text);
+        return templates.advisorTransfer();
     }
 
-    // 7. ADVISOR REQUEST
-    if (ADVISOR_REGEX.test(lowText)) {
-        const dni = cachedClient?.NRO_DNI || cachedClient?.NRO_RUC || 'Sin ID';
-        await sendAdvisorEmail(dni, text);
-        return `Listo. Un asesor de *InformaPeru* ha sido notificado y se pondrá en contacto contigo a la brevedad.`;
+    // ========== 7. OFF-TOPIC DETECTION ==========
+    const offTopicRegex = /(clima|fútbol|soccer|película|receta|chiste|música|juego)/i;
+    if (offTopicRegex.test(lowText)) {
+        return templates.onlyDebtInfo();
     }
 
-    // 8. AI FALLBACK (only when no pattern matched)
-    console.log('🤖 AI Fallback - calling LLM');
-    const botContext = (process.env.BOT_CONTEXT || '').replace(/\\n/g, '\n');
-    const conversation = getConversation(fromJid);
+    // ========== 8. GREETING WITHOUT SESSION ==========
+    const greetingRegex = /^(hola|buen[ao]s?\s*(d[ií]as?|tardes?|noches?)|hey|saludos?)$/i;
+    if (greetingRegex.test(lowText)) {
+        if (client) {
+            return templates.menuOptions(getFirstName(client.NOMBRE_CLIENTE));
+        }
+        return templates.greetingNeutral();
+    }
 
-    // Build rich context for AI
+    // ========== 9. DEBT-RELATED QUESTIONS ==========
+    const debtRegex = /(cuanto debo|mi deuda|saldo|pagar|mora|atraso|cuota)/i;
+    if (debtRegex.test(lowText)) {
+        if (client) {
+            return templates.debtDetails(client);
+        }
+        return templates.askForDocument();
+    }
+
+    // ========== 10. AI FALLBACK ==========
+    logger.info('AI', 'Usando IA para respuesta');
+
+    const botContext = (process.env.BOT_CONTEXT || 'Eres Max, asistente de cobranzas de InformaPeru.').replace(/\\n/g, '\n');
+
     let clientContext = '';
-    if (cachedClient) {
-        clientContext = `\n\n=== DATOS DEL CLIENTE (USAR ESTOS DATOS PARA RESPONDER) ===
-DNI: ${cachedClient.NRO_DNI || 'N/A'}
-Nombre: ${cachedClient.CLIENTE_PREMIUM || 'N/A'}
-Cuota Pendiente (Capital): S/ ${cachedClient.SALDO_CAPITAL_PROXIMA_CUOTA || 0}
-Intereses: S/ ${cachedClient.SALDO_INTERES_PROXIMA_CUOTA || 0}
-Mora: S/ ${cachedClient.SALDO_MORA_PROXIMA_CUOTA || 0}
-Gastos: S/ ${cachedClient.SALDO_GASTO_PROXIMA_CUOTA || 0}
-TOTAL CUOTA A PAGAR: S/ ${calculateSaldoCuota(cachedClient)}
-Saldo Total Crédito: S/ ${cachedClient.SALDO_TOTAL || 0}
-Días Atraso: ${cachedClient.DIAS_ATRASO || 0}
-Último Pago: ${cachedClient.ULTIMO_PAGO || 'Sin registros'}
-=== FIN DATOS CLIENTE ===`;
+    if (client) {
+        clientContext = `
+DATOS DEL CLIENTE:
+- Nombre: ${client.NOMBRE_CLIENTE}
+- Cuenta: ${client.CUENTA_CREDITO}
+- Saldo Capital: S/ ${client.SALDO_CAPITAL || 0}
+- Saldo Cuota: S/ ${client.SALDO_CUOTA || 0}
+- Días Atraso: ${client.DIAS_ATRASO || 0}`;
     } else {
-        clientContext = '\n\nCLIENTE NO IDENTIFICADO. SOLICITAR DNI ANTES DE DAR INFORMACIÓN DE DEUDA.';
+        clientContext = '\nCLIENTE NO IDENTIFICADO. Pedir DNI o número de cuenta.';
     }
 
     const messages = [
         {
             role: 'system',
-            content: `${botContext}\n\nREGLAS ESTRICTAS:\n1. NUNCA inventes montos. USA SOLO los datos del cliente proporcionados.\n2. Si el cliente pregunta sobre cuota/mora/total, USA los campos exactos.\n3. Sé breve y profesional.\n4. Si no hay DNI identificado, pídelo cordialmente.${clientContext}`
+            content: `${botContext}
+
+REGLAS:
+1. Responde SOLO sobre deudas y cobranzas
+2. NO inventes montos, usa datos del cliente
+3. Sé breve y profesional
+4. Si preguntan otra cosa, indica que solo ayudas con deudas
+${clientContext}`
         },
-        ...conversation.messages,
         { role: 'user', content: text }
     ];
 
     try {
-        let aiResponse = await getDeepseekResponse(messages);
-        addMessage(fromJid, 'user', text);
-        addMessage(fromJid, 'assistant', aiResponse);
-
-        await saveConversacion({
-            telefonoWhatsapp: fromJid,
-            dniProporcionado: cachedClient?.NRO_DNI || null,
-            mensajeCliente: text,
-            respuestaBot: aiResponse,
-            intent: 'AI_RESPONSE'
-        });
-
+        const aiResponse = await getDeepseekResponse(messages);
         return aiResponse;
     } catch (err) {
-        console.error('Error calling AI:', err.message);
-        return 'Lo siento, estoy experimentando una alta demanda. Por favor intenta de nuevo o escribe "asesor".';
+        logger.error('AI', 'Error en respuesta AI', err);
+        return templates.errorFallback();
     }
 }
 
