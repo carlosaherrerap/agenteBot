@@ -1,64 +1,144 @@
-# InformaPeru WhatsApp Chatbot
+# 🤖 Chatbot de Cobranza - InformaPeru v2.0
 
-Chatbot automatizado para gestión de cobranzas utilizando WhatsApp (Baileys), **Deepseek API** (AI) y Gmail (Nodemailer).
+Bot de WhatsApp para gestión de cobranzas con integración a SQL Server.
 
-> **Nota**: Este bot utiliza **Deepseek AI** directamente (NO usa OLLAMA ni Flowise). La API key de Deepseek se configura en el archivo `.env`.
+## 📋 Requisitos
 
-## Requisitos Previos
+- Node.js 18+
+- SQL Server con base de datos `ContextBot` y tabla `BotHuancayo.Base`
+- ODBC Driver 17 o 18 para SQL Server
+- Redis (opcional - el bot funciona sin él usando memoria)
 
-- Node.js v18 o superior
-- Docker & Docker Compose (Opcional, para ejecución en contenedor)
-- Cuenta de Gmail con "Contraseña de Aplicación" habilitada.
-- **API Key de Deepseek** ([https://platform.deepseek.com](https://platform.deepseek.com))
+## 🚀 Instalación
 
-## Configuración
+```bash
+# 1. Clonar repositorio
+git clone <repo-url>
+cd agenteBot
 
-1.  Clona el repositorio.
-2.  Crea un archivo `.env` basado en el siguiente ejemplo:
+# 2. Instalar dependencias
+npm install
 
-```env
-DEEPSEEK_API_KEY=tu_api_key_aqui
-GMAIL_USER=tu_correo@gmail.com
-GMAIL_PASS=tu_app_password_aqui
-PORT=3008
-BOT_CONTEXT="Eres un asistente de cobranzas..."
+# 3. Configurar variables de entorno
+cp .env.example .env
+# Editar .env con tus credenciales
 ```
 
-### Cambiar el Modelo de AI
+## ⚙️ Configuración (.env)
 
-El bot está configurado para usar `deepseek-chat`. Si deseas cambiar el modelo:
-1. Edita `services/deepseek.js`
-2. Cambia la línea `model: 'deepseek-chat'` por el modelo que prefieras (ej: `deepseek-coder`)
+### SQL Server con Autenticación de Windows
+```env
+SQL_HOST=WIN-HKBUI0ID607
+SQL_USER=
+SQL_PASSWORD=
+SQL_DRIVER=ODBC Driver 17 for SQL Server
+SQL_WINDOWS_AUTH=true
+SQL_DATABASE=ContextBot
+SQL_TABLE=BotHuancayo.Base
+```
 
-Para usar un proveedor diferente (como OpenAI, Anthropic, etc.), necesitarás modificar el archivo `services/deepseek.js` con la URL y formato de la nueva API.
+### SQL Server con Usuario/Contraseña
+```env
+SQL_HOST=192.168.18.117
+SQL_USER=sa
+SQL_PASSWORD=tu_contraseña
+SQL_DRIVER=ODBC Driver 18 for SQL Server
+SQL_DATABASE=ContextBot
+SQL_TABLE=BotHuancayo.Base
+```
 
-## Ejecución Local
+### Redis (Opcional)
+```env
+# Si no tienes Redis instalado, el bot usará memoria automáticamente
+REDIS_HOST=localhost
+REDIS_PORT=6379
+# Para desactivar Redis explícitamente:
+# REDIS_ENABLED=false
+```
 
-1. Instala las dependencias:
-   ```bash
-   npm install
-   ```
-2. Inicia el servidor:
-   ```bash
-   npm start
-   ```
-3. Visita `http://localhost:3008/qr` para escanear el código QR con tu WhatsApp.
+## 🏃 Ejecución
 
-## Ejecución con Docker
+```bash
+npm start
+# o para desarrollo:
+npm run dev
+```
 
-Para una ejecución más aislada y estable (recomendado en producción o servidores remotos):
+## 📱 Uso
 
-1. Construye e inicia el contenedor:
-   ```bash
-   docker-compose up -d --build
-   ```
-2. El servicio se reiniciará automáticamente si falla y puedes ver los logs con:
-   ```bash
-   docker-compose logs -f
-   ```
+1. Abrir `http://localhost:3000`
+2. Escanear QR con WhatsApp
+3. Una vez conectado, ir al Dashboard
 
-## Notas de Estabilidad
+## 🔧 Verificar ODBC Driver
 
-- **Limpieza de Puerto**: El bot cierra correctamente el puerto al finalizar con `CTRL+C`.
-- **Sesión Expirada**: Si la sesión falla (error 401), el bot limpiará automáticamente la carpeta `auth` y generará un nuevo QR.
-- **Respuestas Inteligentes**: Utiliza el modelo `deepseek-chat` para respuestas más coherentes siguiendo el contexto proporcionado en el `.env`.
+```powershell
+# Ver drivers instalados
+Get-OdbcDriver | Select-Object Name
+
+# Si no tienes el driver, descargarlo de:
+# https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server
+```
+
+## 🔧 Instalar Redis (Opcional)
+
+### Windows (con Docker)
+```bash
+docker run -d --name redis -p 6379:6379 redis:7-alpine
+```
+
+### Linux (Ubuntu/Debian)
+```bash
+sudo apt update
+sudo apt install redis-server
+sudo systemctl start redis
+redis-cli ping  # Debe responder PONG
+```
+
+### Verificar Redis
+```bash
+redis-cli ping
+# Respuesta esperada: PONG
+```
+
+## 📊 Logs Esperados
+
+```
+╔════════════════════════════════════════════════════════╗
+║  🤖 CHATBOT COBRANZA - INFORMAPERU v2.0              ║
+╚════════════════════════════════════════════════════════╝
+   DEBUG_LOGS: ACTIVADO
+
+[SYSTEM] ℹ️ Verificando conexiones...
+[SQL] ℹ️ Fase 1: Conectando al servidor...
+[SQL] ✅ Conectado a 192.168.18.117
+[SQL] ℹ️ Fase 2: Verificando base de datos...
+[SQL] ✅ Base de datos: ContextBot
+[SQL] ℹ️ Fase 3: Verificando tabla...
+[SQL] ✅ Tabla encontrada: BotHuancayo.Base
+[REDIS] ⚠️ No disponible - usando caché en memoria
+[WHATSAPP] ✅ QR generado - Escanea con WhatsApp
+```
+
+## 📁 Estructura
+
+```
+agenteBot/
+├── utils/
+│   ├── sqlServer.js   # Conexión SQL Server
+│   ├── redis.js       # Cache (Redis o memoria)
+│   ├── logger.js      # Sistema de logs
+│   ├── excel.js       # Guardar teléfonos nuevos
+│   └── templates.js   # Mensajes del bot
+├── services/
+│   ├── deepseek.js    # AI (Ollama/Deepseek)
+│   └── email.js       # Emails a asesores
+├── public/            # Frontend Dashboard
+├── flowEngine.js      # Lógica del chatbot
+├── server.js          # Servidor Express
+└── .env               # Configuración
+```
+
+## 📝 Licencia
+
+MIT

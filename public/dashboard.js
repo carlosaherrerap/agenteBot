@@ -148,25 +148,39 @@ function filterChats() {
 
 // ==================== SELECT CHAT ====================
 async function selectChat(encodedJid) {
-    const jid = decodeURIComponent(encodedJid);
-    selectedChatJid = jid;
+    try {
+        const jid = decodeURIComponent(encodedJid);
+        console.log('Selecting chat:', jid);
+        selectedChatJid = jid;
 
-    // Update UI
-    welcomeScreen.style.display = 'none';
-    btnToggleBot.disabled = false;
+        // Update UI
+        welcomeScreen.style.display = 'none';
+        btnToggleBot.disabled = false;
 
-    // Highlight selected chat
-    document.querySelectorAll('.chat-item').forEach(item => {
-        item.classList.remove('active');
-    });
-    event.currentTarget?.classList.add('active');
+        // Highlight selected chat - update active class based on jid match
+        document.querySelectorAll('.chat-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        // Find the clicked item by matching the jid
+        const clickedItem = document.querySelector(`.chat-item[onclick*="${encodedJid}"]`);
+        if (clickedItem) {
+            clickedItem.classList.add('active');
+        }
 
-    // Load messages
-    await loadMessages();
+        // Reset message count for new chat
+        lastMessageCount = 0;
 
-    // Start polling for this chat
-    if (pollingInterval) clearInterval(pollingInterval);
-    pollingInterval = setInterval(loadMessages, 2000);
+        // Load messages
+        await loadMessages();
+
+        // Start polling for this chat
+        if (pollingInterval) clearInterval(pollingInterval);
+        pollingInterval = setInterval(loadMessages, 2000);
+
+        console.log('Chat selected successfully:', jid);
+    } catch (err) {
+        console.error('Error selecting chat:', err);
+    }
 }
 
 async function loadMessages() {

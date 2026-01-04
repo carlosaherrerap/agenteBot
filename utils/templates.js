@@ -11,7 +11,6 @@ const templates = {
     greetingWithName(name) {
         return `Hola, *${name}* 😊 Soy Max, tu asistente virtual 🤖
 Te saludamos de *InformaPeru*.
-
 Para ayudarte escribe brevemente tu consulta *"Quiero pagar mi deuda"* o selecciona una opción:
 
 1️⃣ Detalles deuda

@@ -97,6 +97,60 @@ function getAllNewPhones() {
 }
 
 /**
+ * Update an existing phone record with account/name info
+ * @param {string} telefono - Phone number to update
+ * @param {object} data - { CUENTA_CREDITO, NOMBRE_CLIENTE }
+ */
+function updatePhoneRecord(telefono, data) {
+    try {
+        if (!fs.existsSync(EXCEL_PATH)) {
+            return { success: false, error: 'File not found' };
+        }
+
+        const workbook = XLSX.readFile(EXCEL_PATH);
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        let records = XLSX.utils.sheet_to_json(worksheet);
+
+        // Find and update the record
+        let updated = false;
+        records = records.map(row => {
+            if (row.telefono_nuevo === telefono) {
+                updated = true;
+                return {
+                    ...row,
+                    CUENTA_CREDITO: data.CUENTA_CREDITO || row.CUENTA_CREDITO || '',
+                    NOMBRE_CLIENTE: data.NOMBRE_CLIENTE || row.NOMBRE_CLIENTE || '',
+                    fecha_actualizacion: new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' })
+                };
+            }
+            return row;
+        });
+
+        if (updated) {
+            const newWorksheet = XLSX.utils.json_to_sheet(records);
+            newWorksheet['!cols'] = [
+                { wch: 22 }, // CUENTA_CREDITO
+                { wch: 40 }, // NOMBRE_CLIENTE
+                { wch: 15 }, // telefono_nuevo
+                { wch: 22 }, // fecha_registro
+                { wch: 22 }  // fecha_actualizacion
+            ];
+            workbook.Sheets[workbook.SheetNames[0]] = newWorksheet;
+            XLSX.writeFile(workbook, EXCEL_PATH);
+
+            logger.success('EXCEL', `Registro actualizado para: ${telefono}`);
+            return { success: true };
+        }
+
+        return { success: false, error: 'Phone not found' };
+
+    } catch (err) {
+        logger.error('EXCEL', 'Error al actualizar Excel', err);
+        return { success: false, error: err.message };
+    }
+}
+
+/**
  * Get count of new phones
  * @returns {number} Count of registered phones
  */
@@ -107,5 +161,6 @@ function getNewPhonesCount() {
 module.exports = {
     appendNewPhone,
     getAllNewPhones,
+    updatePhoneRecord,
     getNewPhonesCount
 };

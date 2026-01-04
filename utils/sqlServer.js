@@ -1,6 +1,7 @@
 /**
  * SQL Server Connection and Query Module
  * Connects to ContextBot database and BotHuancayo.Base table
+ * Supports both SQL Server Authentication and Windows Authentication
  */
 require('dotenv').config();
 const sql = require('mssql/msnodesqlv8');
@@ -14,9 +15,35 @@ let connectionStatus = {
     lastError: null
 };
 
+// Build connection string based on auth type
+function buildConnectionString() {
+    const server = process.env.SQL_HOST || 'localhost';
+    const database = process.env.SQL_DATABASE || 'ContextBot';
+    const user = process.env.SQL_USER || '';
+    const password = process.env.SQL_PASSWORD || '';
+    const driver = process.env.SQL_DRIVER || 'ODBC Driver 17 for SQL Server';
+    const useWindowsAuth = process.env.SQL_WINDOWS_AUTH === 'true' || !user || user === 'WIN-HKBUI0ID607';
+
+    let connString = `Driver={${driver}};Server=${server};Database=${database};`;
+
+    if (useWindowsAuth) {
+        // Windows Authentication (Trusted Connection)
+        connString += 'Trusted_Connection=yes;';
+        logger.info('SQL', `Usando Autenticación de Windows en ${server}`);
+    } else {
+        // SQL Server Authentication
+        connString += `UID=${user};PWD=${password};`;
+        logger.info('SQL', `Usando Autenticación SQL Server (usuario: ${user})`);
+    }
+
+    connString += 'Encrypt=no;TrustServerCertificate=yes;';
+
+    return connString;
+}
+
 // Database configuration
 const config = {
-    connectionString: `Driver={ODBC Driver 18 for SQL Server};Server=${process.env.SQL_HOST || '192.168.18.117'};Database=${process.env.SQL_DATABASE || 'ContextBot'};UID=${process.env.SQL_USER || 'sa'};PWD=${process.env.SQL_PASSWORD || ''};Encrypt=no;TrustServerCertificate=yes;`
+    connectionString: buildConnectionString()
 };
 
 let pool = null;

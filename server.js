@@ -162,6 +162,8 @@ async function startWhatsApp() {
             const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
             if (!text) continue;
 
+            logger.info('WHATSAPP', `📨 Mensaje recibido de ${from.split('@')[0]}`);
+
             // Store incoming message
             addMessageToChat(from, 'client', text, msg.key.id);
 
@@ -172,13 +174,47 @@ async function startWhatsApp() {
             }
 
             try {
-                const response = await runFlow(text, from);
+                logger.info('BOT', '────────────────────────────────────────');
+                logger.info('BOT', `Procesando mensaje: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+
+                const startTime = Date.now();
+
+                // Add timeout wrapper to prevent hanging
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('TIMEOUT: Flow tardó más de 30 segundos')), 30000)
+                );
+
+                const response = await Promise.race([
+                    runFlow(text, from),
+                    timeoutPromise
+                ]);
+
+                const elapsed = Date.now() - startTime;
+
                 if (response) {
+                    logger.success('BOT', `Respuesta generada en ${elapsed}ms`);
                     await sock.sendMessage(from, { text: response });
                     addMessageToChat(from, 'bot', response);
+                    logger.info('BOT', '✅ Mensaje enviado correctamente');
+                } else {
+                    logger.debug('BOT', 'Sin respuesta (mensaje de grupo o filtrado)');
                 }
+
+                logger.info('BOT', '────────────────────────────────────────');
             } catch (err) {
-                logger.error('BOT', 'Error en runFlow', err);
+                logger.error('BOT', `Error procesando mensaje: ${err.message}`);
+                logger.info('BOT', '────────────────────────────────────────');
+
+                // Send fallback message if it's a timeout
+                if (err.message.includes('TIMEOUT')) {
+                    try {
+                        await sock.sendMessage(from, {
+                            text: 'Lo siento, hubo un problema procesando tu mensaje. Por favor intenta de nuevo o escribe "asesor" para hablar con una persona.'
+                        });
+                    } catch (sendErr) {
+                        logger.error('WHATSAPP', 'Error enviando mensaje de fallback', sendErr);
+                    }
+                }
             }
         }
     });

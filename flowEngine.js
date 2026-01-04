@@ -33,14 +33,38 @@ function toggleBotPause(jid) {
 /**
  * Extract phone number from WhatsApp JID
  * @param {string} jid - WhatsApp JID (format: 51999999999@s.whatsapp.net)
- * @returns {string} Phone number without country code
+ * @returns {string} Phone number (last 9 digits for Peru)
  */
 function extractPhone(jid) {
     const full = jid.split('@')[0];
-    // Remove Peru country code (51) if present
+
+    // Log full JID for debugging
+    logger.debug('BOT', `JID completo: ${jid}`);
+    logger.debug('BOT', `Número extraído raw: ${full}`);
+
+    // For Peru, phone numbers are 9 digits starting with 9
+    // The JID might have country code (51) or other prefixes
+
+    // If it's already 9 digits and starts with 9, it's a Peru mobile
+    if (full.length === 9 && full.startsWith('9')) {
+        return full;
+    }
+
+    // If starts with 51 (Peru code), remove it
     if (full.startsWith('51') && full.length === 11) {
         return full.substring(2);
     }
+
+    // For other formats, try to get the last 9 digits if they start with 9
+    if (full.length > 9) {
+        const last9 = full.slice(-9);
+        if (last9.startsWith('9')) {
+            logger.debug('BOT', `Usando últimos 9 dígitos: ${last9}`);
+            return last9;
+        }
+    }
+
+    // Return the full number if we can't normalize it
     return full;
 }
 
@@ -191,6 +215,12 @@ async function runFlow(incomingText, fromJid) {
                 identifiedBy: validation.type
             });
 
+            // Update Excel record with client info
+            excel.updatePhoneRecord(clientPhone, {
+                CUENTA_CREDITO: client.CUENTA_CREDITO || '',
+                NOMBRE_CLIENTE: client.NOMBRE_CLIENTE || ''
+            });
+
             logger.success('BOT', `Cliente identificado por ${validation.type}: ${client.NOMBRE_CLIENTE}`);
             return templates.menuOptions(getFirstName(client.NOMBRE_CLIENTE));
         } else {
@@ -251,8 +281,10 @@ async function runFlow(incomingText, fromJid) {
     }
 
     // ========== 9. DEBT-RELATED QUESTIONS ==========
+    logger.debug('BOT', 'Paso 9: Verificando si es pregunta de deuda...');
     const debtRegex = /(cuanto debo|mi deuda|saldo|pagar|mora|atraso|cuota)/i;
     if (debtRegex.test(lowText)) {
+        logger.info('BOT', 'Detectada pregunta sobre deuda');
         if (client) {
             return templates.debtDetails(client);
         }
@@ -260,7 +292,9 @@ async function runFlow(incomingText, fromJid) {
     }
 
     // ========== 10. AI FALLBACK ==========
-    logger.info('AI', 'Usando IA para respuesta');
+    logger.info('BOT', '═══════════════════════════════════════');
+    logger.info('BOT', 'Paso 10: Ningún patrón coincidió, usando IA...');
+    logger.info('AI', `Procesando mensaje: "${text}"`);
 
     const botContext = (process.env.BOT_CONTEXT || 'Eres Max, asistente de cobranzas de InformaPeru.').replace(/\\n/g, '\n');
 
@@ -273,8 +307,10 @@ DATOS DEL CLIENTE:
 - Saldo Capital: S/ ${client.SALDO_CAPITAL || 0}
 - Saldo Cuota: S/ ${client.SALDO_CUOTA || 0}
 - Días Atraso: ${client.DIAS_ATRASO || 0}`;
+        logger.debug('AI', `Cliente identificado: ${client.NOMBRE_CLIENTE}`);
     } else {
         clientContext = '\nCLIENTE NO IDENTIFICADO. Pedir DNI o número de cuenta.';
+        logger.debug('AI', 'Cliente NO identificado');
     }
 
     const messages = [
@@ -293,10 +329,17 @@ ${clientContext}`
     ];
 
     try {
+        logger.info('AI', 'Enviando solicitud a IA...');
+        const startTime = Date.now();
         const aiResponse = await getDeepseekResponse(messages);
+        const elapsed = Date.now() - startTime;
+
+        logger.success('BOT', `Respuesta IA (${elapsed}ms): "${aiResponse.substring(0, 80)}..."`);
+        logger.info('BOT', '═══════════════════════════════════════');
         return aiResponse;
     } catch (err) {
         logger.error('AI', 'Error en respuesta AI', err);
+        logger.info('BOT', '═══════════════════════════════════════');
         return templates.errorFallback();
     }
 }

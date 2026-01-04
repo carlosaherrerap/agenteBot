@@ -1,15 +1,21 @@
 /**
  * Redis Cache Client for Session Management
  * TTL: 4 minutes for inactive sessions
+ * FALLBACK: Uses in-memory cache if Redis is not available
  */
 require('dotenv').config();
-const Redis = require('ioredis');
 const logger = require('./logger');
 
 const SESSION_TTL = 4 * 60; // 4 minutes in seconds
+const SESSION_TTL_MS = SESSION_TTL * 1000;
 
 let redis = null;
 let isConnected = false;
+let useMemoryFallback = false;
+
+// In-memory fallback cache
+const memoryCache = new Map();
+const memoryCacheTimers = new Map();
 
 /**
  * Initialize Redis connection
@@ -17,45 +23,61 @@ let isConnected = false;
 async function connect() {
     if (redis && isConnected) return redis;
 
+    // Check if Redis is disabled
+    if (process.env.REDIS_ENABLED === 'false') {
+        useMemoryFallback = true;
+        logger.warn('REDIS', 'Redis deshabilitado - usando caché en memoria');
+        return null;
+    }
+
     const host = process.env.REDIS_HOST || 'localhost';
     const port = process.env.REDIS_PORT || 6379;
 
     try {
+        const Redis = require('ioredis');
+
         redis = new Redis({
             host,
             port,
             retryStrategy: (times) => {
-                if (times > 3) {
-                    logger.error('REDIS', `No se pudo conectar después de ${times} intentos`);
-                    return null;
+                if (times > 2) {
+                    logger.warn('REDIS', 'No disponible - usando caché en memoria como fallback');
+                    useMemoryFallback = true;
+                    return null; // Stop retrying
                 }
-                return Math.min(times * 200, 2000);
+                return Math.min(times * 200, 1000);
             },
-            maxRetriesPerRequest: 3
+            maxRetriesPerRequest: 2,
+            connectTimeout: 3000
         });
 
         redis.on('connect', () => {
             isConnected = true;
+            useMemoryFallback = false;
             logger.connection('REDIS', true, `${host}:${port}`);
         });
 
         redis.on('error', (err) => {
-            isConnected = false;
-            logger.error('REDIS', 'Error de conexión', err);
+            if (!useMemoryFallback) {
+                isConnected = false;
+            }
         });
 
         redis.on('close', () => {
             isConnected = false;
-            logger.warn('REDIS', 'Conexión cerrada');
         });
 
-        // Test connection
-        await redis.ping();
+        // Test connection with short timeout
+        await Promise.race([
+            redis.ping(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2000))
+        ]);
+
         return redis;
 
     } catch (err) {
-        logger.error('REDIS', 'Error al conectar', err);
-        isConnected = false;
+        useMemoryFallback = true;
+        logger.warn('REDIS', 'No disponible - usando caché en memoria');
         return null;
     }
 }
@@ -66,24 +88,51 @@ async function connect() {
  * @returns {object|null} Session data or null
  */
 async function getSession(jid) {
+    // Use memory fallback
+    if (useMemoryFallback) {
+        const data = memoryCache.get(jid);
+        if (data) {
+            // Extend TTL on read
+            resetMemoryTimer(jid);
+            return data;
+        }
+        return null;
+    }
+
+    // Use Redis
     if (!redis || !isConnected) {
         await connect();
+        if (useMemoryFallback) return getSession(jid); // Retry with memory
     }
 
     try {
         const data = await redis.get(`session:${jid}`);
         if (data) {
             logger.debug('REDIS', `📦 Sesión encontrada: ${jid}`);
-            // Extend TTL on read (keep session alive)
             await redis.expire(`session:${jid}`, SESSION_TTL);
             return JSON.parse(data);
         }
-        logger.debug('REDIS', `📭 Sin sesión para: ${jid}`);
         return null;
     } catch (err) {
-        logger.error('REDIS', 'Error al obtener sesión', err);
-        return null;
+        // Fallback to memory on error
+        useMemoryFallback = true;
+        return memoryCache.get(jid) || null;
     }
+}
+
+/**
+ * Reset memory cache timer for TTL
+ */
+function resetMemoryTimer(jid) {
+    if (memoryCacheTimers.has(jid)) {
+        clearTimeout(memoryCacheTimers.get(jid));
+    }
+    const timer = setTimeout(() => {
+        memoryCache.delete(jid);
+        memoryCacheTimers.delete(jid);
+        logger.sessionExpired(jid);
+    }, SESSION_TTL_MS);
+    memoryCacheTimers.set(jid, timer);
 }
 
 /**
@@ -92,8 +141,18 @@ async function getSession(jid) {
  * @param {object} data - Session data to store
  */
 async function setSession(jid, data) {
+    // Use memory fallback
+    if (useMemoryFallback) {
+        memoryCache.set(jid, data);
+        resetMemoryTimer(jid);
+        logger.debug('REDIS', `💾 Sesión guardada en memoria: ${jid}`);
+        return true;
+    }
+
+    // Use Redis
     if (!redis || !isConnected) {
         await connect();
+        if (useMemoryFallback) return setSession(jid, data);
     }
 
     try {
@@ -101,8 +160,11 @@ async function setSession(jid, data) {
         logger.debug('REDIS', `💾 Sesión guardada: ${jid} (TTL: ${SESSION_TTL / 60}min)`);
         return true;
     } catch (err) {
-        logger.error('REDIS', 'Error al guardar sesión', err);
-        return false;
+        // Fallback to memory
+        useMemoryFallback = true;
+        memoryCache.set(jid, data);
+        resetMemoryTimer(jid);
+        return true;
     }
 }
 
@@ -111,6 +173,17 @@ async function setSession(jid, data) {
  * @param {string} jid - WhatsApp JID
  */
 async function deleteSession(jid) {
+    // Memory fallback
+    if (useMemoryFallback) {
+        if (memoryCacheTimers.has(jid)) {
+            clearTimeout(memoryCacheTimers.get(jid));
+            memoryCacheTimers.delete(jid);
+        }
+        memoryCache.delete(jid);
+        logger.sessionExpired(jid);
+        return true;
+    }
+
     if (!redis || !isConnected) return false;
 
     try {
@@ -118,7 +191,6 @@ async function deleteSession(jid) {
         logger.sessionExpired(jid);
         return true;
     } catch (err) {
-        logger.error('REDIS', 'Error al eliminar sesión', err);
         return false;
     }
 }
@@ -128,27 +200,34 @@ async function deleteSession(jid) {
  * @param {string} jid - WhatsApp JID
  */
 async function extendSession(jid) {
+    // Memory fallback
+    if (useMemoryFallback) {
+        if (memoryCache.has(jid)) {
+            resetMemoryTimer(jid);
+            return true;
+        }
+        return false;
+    }
+
     if (!redis || !isConnected) return false;
 
     try {
         const exists = await redis.exists(`session:${jid}`);
         if (exists) {
             await redis.expire(`session:${jid}`, SESSION_TTL);
-            logger.debug('REDIS', `⏰ TTL extendido: ${jid}`);
             return true;
         }
         return false;
     } catch (err) {
-        logger.error('REDIS', 'Error al extender TTL', err);
         return false;
     }
 }
 
 /**
- * Check if Redis is connected
+ * Check if Redis is connected (or using memory fallback)
  */
 function isRedisConnected() {
-    return isConnected;
+    return isConnected || useMemoryFallback;
 }
 
 /**
@@ -157,6 +236,7 @@ function isRedisConnected() {
 function getStatus() {
     return {
         connected: isConnected,
+        usingMemoryFallback: useMemoryFallback,
         host: process.env.REDIS_HOST || 'localhost',
         port: process.env.REDIS_PORT || 6379
     };
