@@ -9,7 +9,6 @@ const chatCount = document.getElementById('chatCount');
 const searchInput = document.getElementById('searchInput');
 const chatHeader = document.getElementById('chatHeader');
 const chatName = document.getElementById('chatName');
-const chatPhone = document.getElementById('chatPhone');
 const chatAvatar = document.getElementById('chatAvatar');
 const messagesContainer = document.getElementById('messagesContainer');
 const welcomeScreen = document.getElementById('welcomeScreen');
@@ -244,7 +243,6 @@ async function toggleBot() {
 
 function updateBotStatusUI(isPaused) {
     if (isPaused) {
-        botStatusDot.style.background = '#dc3545';
         btnToggleText.textContent = 'Bot Pausado';
         btnToggleBot.classList.add('paused');
 
@@ -253,7 +251,6 @@ function updateBotStatusUI(isPaused) {
         btnSend.disabled = false;
         btnSend.classList.add('active');
     } else {
-        botStatusDot.style.background = '#00a884';
         btnToggleText.textContent = 'Bot Activo';
         btnToggleBot.classList.remove('paused');
 

@@ -232,13 +232,15 @@ body {
     word-wrap: break-word;
 }
 
-.message.received {
+.message.client {
     align-self: flex-start;
     background-color: var(--wa-bubble-received);
     border-top-left-radius: 0;
 }
 
-.message.sent {
+.message.bot,
+.message.user,
+.message.human {
     align-self: flex-end;
     background-color: var(--wa-bubble-sent);
     border-top-right-radius: 0;
@@ -316,8 +318,13 @@ body {
     background: var(--wa-accent);
 }
 
-.btn-toggle.paused .dot {
+.btn-toggle.paused {
     background: var(--danger);
+    border-color: var(--danger);
+}
+
+.btn-toggle.paused .dot {
+    background: white;
 }
 
 .btn-logout {
