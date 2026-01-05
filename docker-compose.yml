@@ -1,10 +1,29 @@
-version: '3.8'
-
-# NOTA: El bot con SQL Server debe ejecutarse FUERA de Docker
-# debido a que msnodesqlv8 requiere drivers ODBC de Windows.
-# Este docker-compose es solo para Redis.
+# =================================================================
+# Docker Compose para InformaPeru Bot
+# =================================================================
 
 services:
+  # Bot Application
+  app:
+    build: .
+    container_name: informaperu-bot
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./auth:/app/auth
+      - ./.env:/app/.env
+    environment:
+      - NODE_ENV=production
+      - REDIS_HOST=redis
+      - SQL_HOST=host.docker.internal
+      - SQL_DRIVER=ODBC Driver 18 for SQL Server
+    depends_on:
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
   # Redis for session caching
   redis:
     image: redis:7-alpine
@@ -24,15 +43,15 @@ services:
 volumes:
   redis-data:
 
-# ===========================================
-# INSTRUCCIONES DE USO:
-# ===========================================
-# 1. Iniciar solo Redis:
-#    docker-compose up -d redis
+# =================================================================
+# COMANDOS ÚTILES:
+# =================================================================
+# 1. Iniciar todo:
+#    docker-compose up -d --build --remove-orphans
 #
-# 2. Ejecutar el bot en Windows:
-#    npm start
-#
-# 3. Para detener Redis:
+# 2. Detener todo:
 #    docker-compose down
-# ===========================================
+#
+# 3. Ver logs:
+#    docker logs -f informaperu-bot
+# =================================================================

@@ -1,15 +1,13 @@
-/**
- * Flow Engine - Main Chatbot Logic
- * Handles all incoming messages and conversation flow
- */
-require('dotenv').config();
 const { getDeepseekResponse } = require('./services/deepseek');
 const { sendAdvisorEmail } = require('./services/email');
+const { getClienteByDNI, saveConversacion } = require('./services/database');
 const sql = require('./utils/sqlServer');
-const redis = require('./utils/redis');
-const excel = require('./utils/excel');
-const templates = require('./utils/templates');
-const logger = require('./utils/logger');
+const fs = require('fs');
+const path = require('path');
+
+// ==================== SESSION MANAGEMENT ====================
+const sessions = new Map(); // jid -> { cachedClient, menuLevel, lastActivity, state }
+const SESSION_TIMEOUT = 150000; // 2.5 minutes in milliseconds
 
 // ==================== BOT PAUSE CONTROL ====================
 const pausedChats = new Set();
@@ -28,530 +26,319 @@ function toggleBotPause(jid) {
     }
 }
 
-// ==================== HELPER FUNCTIONS ====================
+// ==================== SESSION FUNCTIONS ====================
 
-/**
- * Extract phone number from WhatsApp JID
- * @param {string} jid - WhatsApp JID (format: 51999999999@s.whatsapp.net)
- * @returns {string} Phone number (last 9 digits for Peru)
- */
-function extractPhone(jid) {
-    const full = jid.split('@')[0];
-
-    // Log full JID for debugging
-    logger.debug('BOT', `JID completo: ${jid}`);
-    logger.debug('BOT', `Número extraído raw: ${full}`);
-
-    // For Peru, phone numbers are 9 digits starting with 9
-    // The JID might have country code (51) or other prefixes
-
-    // If it's already 9 digits and starts with 9, it's a Peru mobile
-    if (full.length === 9 && full.startsWith('9')) {
-        return full;
+function getSession(jid) {
+    if (!sessions.has(jid)) {
+        sessions.set(jid, {
+            cachedClient: null,
+            menuLevel: 'root', // 'root', 'main', 'deuda_submenu', 'descuento', etc.
+            lastActivity: Date.now(),
+            state: 'initial', // 'initial', 'waiting_dni', 'identified', etc.
+            conversationHistory: []
+        });
     }
+    const session = sessions.get(jid);
+    session.lastActivity = Date.now();
+    return session;
+}
 
-    // If starts with 51 (Peru code), remove it
-    if (full.startsWith('51') && full.length === 11) {
-        return full.substring(2);
+function clearSession(jid) {
+    sessions.delete(jid);
+    console.log(`🗑️ Session cleared for ${jid}`);
+}
+
+function checkSessionTimeout(jid) {
+    const session = sessions.get(jid);
+    if (!session) return false;
+
+    const elapsed = Date.now() - session.lastActivity;
+    if (elapsed > SESSION_TIMEOUT) {
+        clearSession(jid);
+        return true; // Session expired
     }
+    return false;
+}
 
-    // For other formats, try to get the last 9 digits if they start with 9
-    if (full.length > 9) {
-        const last9 = full.slice(-9);
-        if (last9.startsWith('9')) {
-            logger.debug('BOT', `Usando últimos 9 dígitos: ${last9}`);
-            return last9;
+// Cleanup inactive sessions every minute
+setInterval(() => {
+    const now = Date.now();
+    for (const [jid, session] of sessions.entries()) {
+        if (now - session.lastActivity > SESSION_TIMEOUT) {
+            clearSession(jid);
         }
     }
+}, 60000);
 
-    // Return the full number if we can't normalize it
-    return full;
-}
+// ==================== CACHE FUNCTIONS ====================
 
-/**
- * Check if message is from a group
- * @param {string} jid - WhatsApp JID
- * @returns {boolean} True if from group
- */
-function isGroup(jid) {
-    return jid.endsWith('@g.us');
-}
-
-/**
- * Check if JID is a Linked ID (not a phone number)
- * @param {string} jid - WhatsApp JID
- * @returns {boolean} True if LID format
- */
-function isLinkedId(jid) {
-    return jid.endsWith('@lid');
-}
-
-/**
- * Validate input and determine type
- * When bot asks for DNI/cuenta, client can provide:
- * - 8 digits = DNI (search in DOCUMENTO field)
- * - 11 digits = RUC (search in DOCUMENTO field)  
- * - 18 digits = Cuenta (search in CUENTA_CREDITO field)
- * @param {string} input - User input
- * @returns {object} { type: 'account'|'dni'|'ruc'|'invalid'|'text', value, error }
- */
-function validateInput(input) {
-    const cleaned = input.replace(/\D/g, ''); // Remove non-digits
-
-    // If no digits, treat as text
-    if (cleaned.length === 0) {
-        return { type: 'text', value: input, error: null };
-    }
-
-    // DNI: exactly 8 digits
-    if (cleaned.length === 8) {
-        logger.info('BOT', `Detectado DNI: ${cleaned}`);
-        return { type: 'dni', value: cleaned, error: null };
-    }
-
-    // Phone: exactly 9 digits
-    if (cleaned.length === 9) {
-        logger.info('BOT', `Detectado teléfono: ${cleaned}`);
-        return { type: 'phone', value: cleaned, error: null };
-    }
-
-    // RUC: exactly 11 digits (should start with 10 or 20)
-    if (cleaned.length === 11) {
-        if (cleaned.startsWith('10') || cleaned.startsWith('20')) {
-            logger.info('BOT', `Detectado RUC: ${cleaned}`);
-            return { type: 'ruc', value: cleaned, error: null };
-        } else {
-            logger.warn('BOT', `RUC con formato inválido: ${cleaned}`);
-            return { type: 'invalid', value: cleaned, error: templates.invalidRucFormat() };
+async function getFromCache(jid) {
+    try {
+        const cached = await sql.getCache(jid);
+        if (cached && cached.clientData) {
+            console.log(`📦 Cache HIT for ${jid}`);
+            return JSON.parse(cached.clientData);
         }
+        console.log(`📭 Cache MISS for ${jid}`);
+        return null;
+    } catch (err) {
+        console.error('Error fetching from BotCache:', err.message);
+        return null;
     }
-
-    // Account: exactly 18 digits
-    if (cleaned.length === 18) {
-        logger.info('BOT', `Detectada cuenta: ${cleaned}`);
-        return { type: 'account', value: cleaned, error: null };
-    }
-
-    // Any other number of digits is invalid
-    logger.warn('BOT', `Longitud de número inválida: ${cleaned.length} dígitos`);
-    return { type: 'invalid', value: cleaned, error: templates.invalidDocumentLength() };
 }
 
-/**
- * Get first name from NOMBRE_CLIENTE
- * @param {string} fullName - Full client name
- * @returns {string} First name or full name
- */
-function getFirstName(fullName) {
-    if (!fullName) return 'Cliente';
-    const parts = fullName.split(' ');
-    return parts[0] || fullName;
+async function saveToCache(jid, dni, data) {
+    try {
+        await sql.upsertCache(jid, dni, data);
+        console.log(`💾 SAVED to cache for ${jid} (DNI: ${dni})`);
+        return true;
+    } catch (err) {
+        console.error('❌ Error saving to BotCache:', err.message);
+        return false;
+    }
 }
+
+// ==================== CALCULATION FUNCTIONS ====================
+
+function calculateSaldoCuota(client) {
+    if (!client) return '0.00';
+    const capital = parseFloat(client.SALDO_CAPITAL_PROXIMA_CUOTA || 0);
+    const interes = parseFloat(client.SALDO_INTERES_PROXIMA_CUOTA || 0);
+    const mora = parseFloat(client.SALDO_MORA_PROXIMA_CUOTA || 0);
+    const gasto = parseFloat(client.SALDO_GASTO_PROXIMA_CUOTA || 0);
+    const congelado = parseFloat(client.SALDO_CAP_INT_CONGELADO_PROXIMA_CUOTA || 0);
+    return (capital + interes + mora + gasto + congelado).toFixed(2);
+}
+
+function getClientName(client) {
+    if (!client) return 'Cliente';
+    const fullName = client.CLIENTE_PREMIUM || client.nombre_completo || 'Cliente';
+    const parts = fullName.split(',');
+    if (parts.length > 1) {
+        return parts[1].trim().split(' ')[0];
+    }
+    return fullName.split(' ')[0];
+}
+
+// ==================== MENU TEMPLATES ====================
+
+function getMainMenu(name) {
+    return `Hola, *${name}*. Te saludamos de *InformaPeru*\n\nSelecciona un número para realizar tu consulta:\n1️⃣ Detalles deuda\n2️⃣ Descuento\n3️⃣ Oficinas\n4️⃣ Otros`;
+}
+
+function getDeudaSubmenu(name) {
+    return `*Detalles de Deuda - ${name}*\n\nSelecciona qué información deseas consultar:\n\n1️⃣ Saldo total y cuotas\n2️⃣ Próxima cuota a pagar\n3️⃣ Días de atraso\n4️⃣ Último pago registrado\n\n0️⃣ Regresar al menú anterior`;
+}
+
+function getDeudaOption1(client) {
+    const name = getClientName(client);
+    const saldoTotal = parseFloat(client.SALDO_TOTAL || 0).toFixed(2);
+    const cuotasPagadas = client.CUOTAS_PAGADAS || 0;
+    const cuotasTotales = client.CUOTAS_TOTALES || 0;
+    const cuotasPendientes = cuotasTotales - cuotasPagadas;
+
+    return `*${name} - Saldo y Cuotas*\n\n💰 Saldo Total: S/ ${saldoTotal}\n📊 Cuotas Pagadas: ${cuotasPagadas}/${cuotasTotales}\n📋 Cuotas Pendientes: ${cuotasPendientes}\n\n0️⃣ Regresar al menú anterior`;
+}
+
+function getDeudaOption2(client) {
+    const name = getClientName(client);
+    const capital = parseFloat(client.SALDO_CAPITAL_PROXIMA_CUOTA || 0).toFixed(2);
+    const interes = parseFloat(client.SALDO_INTERES_PROXIMA_CUOTA || 0).toFixed(2);
+    const mora = parseFloat(client.SALDO_MORA_PROXIMA_CUOTA || 0).toFixed(2);
+    const gasto = parseFloat(client.SALDO_GASTO_PROXIMA_CUOTA || 0).toFixed(2);
+    const totalCuota = calculateSaldoCuota(client);
+
+    return `*${name} - Próxima Cuota*\n\n📌 Capital: S/ ${capital}\n📈 Intereses: S/ ${interes}\n⚠️ Mora: S/ ${mora}\n💼 Gastos: S/ ${gasto}\n\n🧾 *Total a Pagar: S/ ${totalCuota}*\n\n0️⃣ Regresar al menú anterior`;
+}
+
+function getDeudaOption3(client) {
+    const name = getClientName(client);
+    const diasAtraso = client.DIAS_ATRASO || 0;
+    const atrasoMax = client.ATRASO_MAXIMO || 0;
+    const diasRestantes = Math.max(0, atrasoMax - diasAtraso);
+
+    return `*${name} - Días de Atraso*\n\n⏰ Días de atraso actual: ${diasAtraso}\n📅 Máximo permitido: ${atrasoMax}\n✅ Días restantes: ${diasRestantes}\n\n0️⃣ Regresar al menú anterior`;
+}
+
+function getDeudaOption4(client) {
+    const name = getClientName(client);
+    const ultimoPago = client.ULTIMO_PAGO || 'No hay registros';
+    const montoUltimoPago = client.MONTO_ULTIMO_PAGO ? `S/ ${parseFloat(client.MONTO_ULTIMO_PAGO).toFixed(2)}` : 'N/A';
+
+    return `*${name} - Último Pago*\n\n💳 Fecha: ${ultimoPago}\n💵 Monto: ${montoUltimoPago}\n\n0️⃣ Regresar al menú anterior`;
+}
+
+// ==================== REGEX PATTERNS ====================
+const DEBT_INQUIRY_REGEX = /(cuanto debo|cuanto pago|cual es mi deuda|quiero pagar|pagar|deuda|saldo|monto)/i;
+const GREETING_ONLY_REGEX = /^(hola|buen(as)? (noches|tardes|dias)|buenos dias|hey|buenas)$/i;
+const IDENTIFIER_REGEX = /\b(\d{8,})\b/;
+const ADVISOR_REGEX = /(asesor|human|hablar con|agente|comunicarme|ayuda)/i;
 
 // ==================== MAIN FLOW ====================
 
-/**
- * Process incoming message
- * @param {string} incomingText - Message text
- * @param {string} fromJid - WhatsApp JID
- * @param {string} resolvedPhone - Resolved phone number (if available)
- * @returns {string|null} Response or null
- */
-async function runFlow(incomingText, fromJid, resolvedPhone = null) {
+async function runFlow(incomingText, fromJid) {
     const text = incomingText.trim();
     const lowText = text.toLowerCase();
 
-    // ========== 1. IGNORE GROUPS ==========
-    if (isGroup(fromJid)) {
-        logger.debug('BOT', `Mensaje de grupo ignorado: ${fromJid}`);
-        return null;
+    console.log(`\n📩 [${fromJid}] Mensaje: "${text}"`);
+
+    // Check session timeout
+    if (checkSessionTimeout(fromJid)) {
+        const responses = [
+            'Tu sesión ha expirado por inactividad. Por favor, envía tu DNI nuevamente para continuar.',
+            'Hola, tu sesión venció. Por favor proporciona tu DNI para reiniciar.'
+        ];
+        return responses[Math.floor(Math.random() * responses.length)];
     }
 
-    // Extract phone info
-    // Use resolvedPhone if provided and not starting with LID:, otherwise try to extract from JID
-    let clientPhone = resolvedPhone || extractPhone(fromJid);
-    const isLid = isLinkedId(fromJid) && (!clientPhone || clientPhone.startsWith('LID:'));
+    const session = getSession(fromJid);
 
-    // If it's still a LID string, we don't have the real phone
-    const hasRealPhone = !isLid && clientPhone && !clientPhone.startsWith('LID:');
-
-    // Log incoming message with special format
-    logger.info('BOT', `────────────────────────────────────────`);
-    logger.info('BOT', `-> TELEFONO_CLIENTE: ${hasRealPhone ? clientPhone : 'DESCONOCIDO (LID)'}`);
-
-    if (isLid) {
-        logger.warn('BOT', `⚠️  JID: ${fromJid} (Linked ID sin número real resuelto aún)`);
-    } else {
-        logger.info('BOT', `🔍 JID real: ${fromJid}`);
+    // 1. GREETING ONLY
+    if (GREETING_ONLY_REGEX.test(lowText) && !session.cachedClient) {
+        session.state = 'waiting_dni';
+        return 'Hola, te saluda InformaPeru. 👋 Si tienes alguna duda o consulta házmela saber adjuntando tu DNI, RUC o CUENTA (p. ejem: 12345678)';
     }
 
-    // ========== 2. CHECK REDIS CACHE ==========
-    let session = await redis.getSession(fromJid);
-    let client = session?.client || null;
-
-    if (session) {
-        logger.info('REDIS', `📦 Sesión encontrada - identified: ${session.identified}, waitingFor: ${session.waitingFor}`);
-        // Extend session on activity
-        await redis.extendSession(fromJid);
-    } else {
-        logger.info('REDIS', '📭 Sin sesión previa');
+    // 2. DEBT INQUIRY WITHOUT IDENTIFIER
+    if (DEBT_INQUIRY_REGEX.test(lowText) && !session.cachedClient && !IDENTIFIER_REGEX.test(text)) {
+        session.state = 'waiting_dni';
+        const responses = [
+            'Por favor, bríndame tu DNI para verificar en el sistema. 🔍',
+            'Hola, te saluda InformaPeru. Necesito tu DNI, RUC o CUENTA.',
+            'Hola, te saluda InformaPeru, bríndame tu DNI para verificar en el sistema.'
+        ];
+        return responses[Math.floor(Math.random() * responses.length)];
     }
 
-    // ========== 3. IF WAITING FOR DOCUMENT/ACCOUNT (CHECK THIS FIRST!) ==========
-    // This MUST come before first contact check to avoid re-greeting
-    if (session && !session.identified && session.waitingFor === 'document') {
-        logger.info('BOT', '═══════════════════════════════════════════════');
-        logger.info('BOT', 'PASO 3: Cliente esperando identificación');
-        logger.info('BOT', `Texto recibido: "${text}"`);
+    // 3. IDENTIFIER DETECTION
+    const idMatch = text.match(IDENTIFIER_REGEX);
+    if (idMatch && session.menuLevel === 'root') {
+        const identifier = idMatch[1];
+        console.log(`🔍 Identifier detected: ${identifier}`);
 
-        const validation = validateInput(text);
-        logger.info('BOT', `Tipo detectado: ${validation.type}, valor: ${validation.value}`);
-
-        if (validation.type === 'invalid') {
-            logger.warn('BOT', `Input inválido: ${validation.error}`);
-            return validation.error;
-        }
-
-        // Search based on input type
-        if (validation.type === 'dni' || validation.type === 'ruc') {
-            // Search by document (DNI or RUC)
-            logger.info('SQL', `🔍 Buscando por DOCUMENTO: ${validation.value}`);
-            client = await sql.findByDocument(validation.value);
-            if (client) {
-                logger.success('SQL', `✅ Cliente encontrado: ${client.NOMBRE_CLIENTE}`);
-            } else {
-                logger.warn('SQL', `❌ No se encontró cliente con documento: ${validation.value}`);
-            }
-        } else if (validation.type === 'phone') {
-            // Search by phone provided in text
-            logger.info('SQL', `🔍 Buscando por TELÉFONO (texto): ${validation.value}`);
-            client = await sql.findByPhone(validation.value);
-        } else if (validation.type === 'account') {
-            // Search by account
-            logger.info('SQL', `🔍 Buscando por CUENTA: ${validation.value}`);
-            client = await sql.findByAccount(validation.value);
+        const result = await getClienteByDNI(identifier);
+        if (result.success && result.cliente) {
+            // ONLY save to cache if found
+            await saveToCache(fromJid, identifier, result.cliente);
+            session.cachedClient = result.cliente;
+            session.state = 'identified';
+            session.menuLevel = 'main';
+            return getMainMenu(getClientName(result.cliente));
         } else {
-            // Text input - might be trying to chat, ask again for identification
-            logger.debug('BOT', 'Input no es número, pidiendo identificación de nuevo');
-            return templates.askForDocument();
-        }
-
-        if (client) {
-            // Client found - update session
-            await redis.setSession(fromJid, {
-                client,
-                identified: true,
-                identifiedBy: validation.type
-            });
-
-            // IF @lid, map it to the phone found in DB for future messages
-            if (isLinkedId(fromJid)) {
-                const dbPhone = client.TELEFONO_TITULAR || client.TELEFONO_MOVIL || client.TELEFONO_RESIDENCIA;
-                if (dbPhone && dbPhone.length >= 9) {
-                    const cleanPhone = dbPhone.replace(/\D/g, '').slice(-9);
-                    await redis.setLidMapping(fromJid, cleanPhone);
-                    logger.success('BOT', `🔗 Vinculado LID a Teléfono DB: ${fromJid} -> ${cleanPhone}`);
-                }
-            }
-
-            // Update Excel record with client info (only if not @lid)
-            if (!isLinkedId(fromJid)) {
-                excel.updatePhoneRecord(clientPhone, {
-                    CUENTA_CREDITO: client.CUENTA_CREDITO || '',
-                    NOMBRE_CLIENTE: client.NOMBRE_CLIENTE || ''
-                });
-            }
-
-            logger.success('BOT', `✅ Cliente identificado por ${validation.type}: ${client.NOMBRE_CLIENTE}`);
-            logger.info('BOT', '═══════════════════════════════════════════════');
-            return templates.menuOptions(getFirstName(client.NOMBRE_CLIENTE));
-        } else {
-            // Not found
-            logger.warn('BOT', `❌ No se encontró cliente con ${validation.type}: ${validation.value}`);
-
-            if (validation.type === 'dni' || validation.type === 'ruc' || validation.type === 'phone') {
-                if (validation.type === 'phone') {
-                    // It was a phone typed as text but not found in DB
-                    // Log to Excel as a new phone
-                    excel.appendNewPhone({
-                        CUENTA_CREDITO: '',
-                        NOMBRE_CLIENTE: '',
-                        telefono_nuevo: validation.value
-                    });
-
-                    logger.phone(validation.value, false, { telefono_nuevo: validation.value });
-                }
-
-                // Document or Phone typed not found - ask for identification again
-                return templates.clientNotFound();
-            }
-
-            // Account not found = no debt
-            logger.info('BOT', '═══════════════════════════════════════════════');
-            return templates.noDebtFound();
+            // DO NOT save anything if not found - allow retry
+            session.cachedClient = null;
+            session.state = 'waiting_dni';
+            session.menuLevel = 'root';
+            return 'Lo siento, no encontré información con ese número. Por favor verifica y vuelve a intentar.';
         }
     }
 
-    // ========== 4. FIRST CONTACT (no session or already identified) ==========
-    if (!client && !session) {
-        logger.info('BOT', '═══════════════════════════════════════════════');
-        logger.info('BOT', 'PASO 4: Primer contacto - nuevo cliente');
-
-        // If we don't have a real phone number yet (Linked ID @lid)
-        if (!hasRealPhone) {
-            logger.info('BOT', 'Cliente con Linked ID - pidiendo DNI/RUC/Cuenta para identificar');
-
-            // Log status prominently
-            logger.phone('DESCONOCIDO (LID)', false);
-
-            // Save partial session
-            await redis.setSession(fromJid, {
-                client: null,
-                identified: false,
-                waitingFor: 'document',
-                isLid: true
-            });
-
-            logger.info('BOT', '═══════════════════════════════════════════════');
-            return templates.greetingNeutral();
-        }
-
-        // For real phone numbers, search in database
-        logger.info('SQL', `🔍 Buscando teléfono en BD: ${clientPhone}`);
-        client = await sql.findByPhone(clientPhone);
-
-        if (client) {
-            // Found by phone - log status prominently and greet with name
-            logger.phone(clientPhone, true);
-            logger.success('BOT', `Cliente identificado por teléfono: ${client.NOMBRE_CLIENTE}`);
-
-            await redis.setSession(fromJid, {
-                client,
-                identified: true,
-                identifiedBy: 'phone'
-            });
-
-            logger.info('BOT', '═══════════════════════════════════════════════');
-            return templates.greetingWithName(client.NOMBRE_CLIENTE);
-        } else {
-            // Phone not found - log status prominently, save to Excel and ask for ID
-            const excelData = {
-                CUENTA_CREDITO: '',
-                NOMBRE_CLIENTE: '',
-                telefono_nuevo: clientPhone
-            };
-
-            logger.phone(clientPhone, false, excelData);
-
-            excel.appendNewPhone(excelData);
-
-            // Save partial session
-            await redis.setSession(fromJid, {
-                client: null,
-                identified: false,
-                waitingFor: 'document'
-            });
-
-            logger.info('BOT', '═══════════════════════════════════════════════');
-            return templates.greetingNeutral();
-        }
-    }
-
-    // ========== 5. GLOBAL RETURN TO MENU (Option 0) ==========
-    if (text === '0' && client) {
-        logger.info('BOT', 'Regresando al menú principal (opción 0)');
-        await redis.setSession(fromJid, {
-            ...session,
-            client,
-            subMenu: 'main',
-            waitingFor: null
-        });
-        return templates.menuOptions(getFirstName(client.NOMBRE_CLIENTE));
-    }
-
-    // ========== 5. MAIN MENU OPTIONS (1-4) ==========
-    if (/^[1-4]$/.test(text) && client && (!session?.subMenu || session?.subMenu === 'main')) {
+    // 4. MAIN MENU NAVIGATION
+    if (session.menuLevel === 'main' && /^[1-4]$/.test(text) && session.cachedClient) {
         const option = parseInt(text);
-        logger.info('BOT', `Opción de menú principal: ${option}`);
+        const name = getClientName(session.cachedClient);
 
         switch (option) {
-            case 1: // Detalles deuda - show sub-menu
-                await redis.setSession(fromJid, {
-                    ...session,
-                    client,
-                    subMenu: 'debt'
-                });
-                return templates.debtDetailsMenu();
-            case 2: // Oficinas
-                return templates.officesInfo();
-            case 3: // Actualizar teléfono - servicio no disponible
-                return templates.updatePhoneRequest();
-            case 4: // Asesor - pedir DNI + consulta
-                await redis.setSession(fromJid, {
-                    ...session,
-                    client,
-                    waitingFor: 'advisor_request'
-                });
-                return templates.advisorRequest();
+            case 1: // Detalles deuda -> Show submenu
+                session.menuLevel = 'deuda_submenu';
+                return getDeudaSubmenu(name);
+            case 2: // Descuento
+                session.menuLevel = 'descuento';
+                return `Hola ${name}, cuento con una campaña de descuento para ti. Escríbeme "Asesor" si deseas detalles.\n\n0️⃣ Regresar al menú anterior`;
+            case 3: // Oficinas
+                session.menuLevel = 'oficinas';
+                return `📍 *Agencias Caja Huancayo*\nTu agencia asignada es ${session.cachedClient.AGENCIA || 'la más cercana'}. Puedes acercarte a cualquier oficina a nivel nacional.\n\n0️⃣ Regresar al menú anterior`;
+            case 4: // Otros
+                session.menuLevel = 'otros';
+                return `Entiendo ${name}. Descríbeme tu consulta para derivarte con un asesor.\n\n0️⃣ Regresar al menú anterior`;
         }
     }
 
-    // ========== 5.1 DEBT SUB-MENU OPTIONS (1-4) ==========
-    if (/^[1-4]$/.test(text) && client && session?.subMenu === 'debt') {
+    // 5. DEUDA SUBMENU NAVIGATION
+    if (session.menuLevel === 'deuda_submenu' && /^[0-4]$/.test(text) && session.cachedClient) {
         const option = parseInt(text);
-        logger.info('BOT', `Opción de sub-menú deuda: ${option}`);
 
-        const saldoCapital = parseFloat(client.SALDO_CAPITAL || 0).toFixed(2);
-        const saldoCuota = parseFloat(client.SALDO_CUOTA || 0).toFixed(2);
-        const diasAtraso = client.DIAS_ATRASO || 0;
+        if (option === 0) {
+            session.menuLevel = 'main';
+            return getMainMenu(getClientName(session.cachedClient));
+        }
 
         switch (option) {
-            case 1: // Saldo Capital
-                return templates.debtSaldoCapital(saldoCapital);
-            case 2: // Cuota Pendiente
-                return templates.debtCuotaPendiente(saldoCuota);
-            case 3: // Días de Atraso
-                return templates.debtDiasAtraso(diasAtraso);
-            case 4: // Regresar al menú anterior
-                await redis.setSession(fromJid, {
-                    ...session,
-                    client,
-                    subMenu: 'main'
-                });
-                return templates.menuOptions(getFirstName(client.NOMBRE_CLIENTE));
+            case 1:
+                return getDeudaOption1(session.cachedClient);
+            case 2:
+                return getDeudaOption2(session.cachedClient);
+            case 3:
+                return getDeudaOption3(session.cachedClient);
+            case 4:
+                return getDeudaOption4(session.cachedClient);
         }
     }
 
-    // ========== 5.2 WAITING FOR ADVISOR REQUEST (DNI + consulta) ==========
-    if (session?.waitingFor === 'advisor_request') {
-        // Check if message contains 8-digit DNI (with or without "DNI" prefix)
-        // Pattern: Optional "DNI" word, then 8 digits
-        const dniWithPrefixMatch = text.match(/(?:dni|documento)\s*[:\-]?\s*(\d{8})/i);
-        const dniWithoutPrefixMatch = text.match(/^\s*(\d{8})(?:\b|[\s,])/);
-
-        const dniMatch = dniWithPrefixMatch || dniWithoutPrefixMatch;
-
-        if (dniMatch) {
-            const dni = dniMatch[1];
-            // Extract query: remove DNI prefix and number
-            let query = text
-                .replace(/(?:dni|documento)\s*[:\-]?\s*\d{8}[,\s]*/i, '')
-                .replace(/^\d{8}[,\s]*/, '')
-                .trim();
-
-            if (!query) query = 'Solicitud de contacto';
-
-            logger.info('BOT', `Solicitud de asesor - DNI: ${dni}, Consulta: ${query}`);
-
-            await sendAdvisorEmail(dni, query);
-
-            // Reset session state
-            await redis.setSession(fromJid, {
-                ...session,
-                waitingFor: null,
-                subMenu: 'main'
-            });
-
-            return templates.advisorTransferConfirm();
-        } else {
-            // No 8-digit DNI found, ask again
-            return templates.advisorRequest();
+    // 6. RETURN TO PREVIOUS LEVEL (0 from any submenu)
+    if (text === '0' && session.cachedClient) {
+        if (session.menuLevel === 'descuento' || session.menuLevel === 'oficinas' || session.menuLevel === 'otros') {
+            session.menuLevel = 'main';
+            return getMainMenu(getClientName(session.cachedClient));
+        }
+        if (session.menuLevel === 'deuda_submenu') {
+            session.menuLevel = 'main';
+            return getMainMenu(getClientName(session.cachedClient));
         }
     }
 
-    // ========== 6. ADVISOR REQUEST BY KEYWORD ==========
-    const advisorRegex = /(asesor|humano|hablar con|agente|comunicarme|ayuda personal)/i;
-    if (advisorRegex.test(lowText)) {
-        await redis.setSession(fromJid, {
-            ...session,
-            client,
-            waitingFor: 'advisor_request'
-        });
-        return templates.advisorRequest();
+    // 7. ADVISOR REQUEST
+    if (ADVISOR_REGEX.test(lowText)) {
+        const dni = session.cachedClient?.NRO_DNI || session.cachedClient?.NRO_RUC || 'Sin ID';
+        await sendAdvisorEmail(dni, text);
+        return `Listo. Un asesor de *InformaPeru* te contactará pronto.\n\n${session.cachedClient ? '0️⃣ Regresar al menú anterior' : ''}`;
     }
 
-    // ========== 7. OFF-TOPIC DETECTION ==========
-    const offTopicRegex = /(clima|fútbol|soccer|película|receta|chiste|música|juego)/i;
-    if (offTopicRegex.test(lowText)) {
-        return templates.onlyDebtInfo();
-    }
-
-    // ========== 8. GREETING WITHOUT SESSION ==========
-    const greetingRegex = /^(hola|buen[ao]s?\s*(d[ií]as?|tardes?|noches?)|hey|saludos?)$/i;
-    if (greetingRegex.test(lowText)) {
-        if (client) {
-            return templates.menuOptions(getFirstName(client.NOMBRE_CLIENTE));
-        }
-        return templates.greetingNeutral();
-    }
-
-    // ========== 9. DEBT-RELATED QUESTIONS ==========
-    logger.debug('BOT', 'Paso 9: Verificando si es pregunta de deuda...');
-    const debtRegex = /(cuanto debo|mi deuda|saldo|pagar|mora|atraso|cuota)/i;
-    if (debtRegex.test(lowText)) {
-        logger.info('BOT', 'Detectada pregunta sobre deuda');
-        if (client) {
-            // Update session to enter debt sub-menu
-            await redis.setSession(fromJid, {
-                ...session,
-                client,
-                subMenu: 'debt'
-            });
-            return templates.debtDetailsMenu();
-        }
-        return templates.askForDocument();
-    }
-
-    // ========== 10. AI FALLBACK ==========
-    logger.info('BOT', '═══════════════════════════════════════');
-    logger.info('BOT', 'Paso 10: Ningún patrón coincidió, usando IA...');
-    logger.info('AI', `Procesando mensaje: "${text}"`);
-
-    const botContext = (process.env.BOT_CONTEXT || 'Eres Max, asistente de cobranzas de InformaPeru.').replace(/\\n/g, '\n');
+    // 8. AI FALLBACK
+    console.log('🤖 AI Fallback');
+    const botContext = (process.env.BOT_CONTEXT || '').replace(/\\n/g, '\n');
 
     let clientContext = '';
-    if (client) {
-        clientContext = `
-DATOS DEL CLIENTE:
-- Nombre: ${client.NOMBRE_CLIENTE}
-- Cuenta: ${client.CUENTA_CREDITO}
-- Saldo Capital: S/ ${client.SALDO_CAPITAL || 0}
-- Saldo Cuota: S/ ${client.SALDO_CUOTA || 0}
-- Días Atraso: ${client.DIAS_ATRASO || 0}`;
-        logger.debug('AI', `Cliente identificado: ${client.NOMBRE_CLIENTE}`);
-    } else {
-        clientContext = '\nCLIENTE NO IDENTIFICADO. Pedir DNI o número de cuenta.';
-        logger.debug('AI', 'Cliente NO identificado');
+    if (session.cachedClient) {
+        clientContext = `\n\nDATOS DEL CLIENTE:
+DNI: ${session.cachedClient.NRO_DNI || 'N/A'}
+Nombre: ${session.cachedClient.CLIENTE_PREMIUM || 'N/A'}
+Saldo Total: S/ ${session.cachedClient.SALDO_TOTAL || 0}
+Cuota a Pagar: S/ ${calculateSaldoCuota(session.cachedClient)}
+Días Atraso: ${session.cachedClient.DIAS_ATRASO || 0}`;
     }
 
     const messages = [
         {
             role: 'system',
-            content: `${botContext}
-
-REGLAS:
-1. Responde SOLO sobre deudas y cobranzas
-2. NO inventes montos, usa datos del cliente
-3. Sé breve y profesional
-4. Si preguntan otra cosa, indica que solo ayudas con deudas
-${clientContext}`
+            content: `${botContext}\n\nREGLAS:\n1. Usa SOLO los datos proporcionados.\n2. Si no hay DNI, solicítalo.${clientContext}`
         },
+        ...session.conversationHistory,
         { role: 'user', content: text }
     ];
 
     try {
-        logger.info('AI', 'Enviando solicitud a IA...');
-        const startTime = Date.now();
-        const aiResponse = await getDeepseekResponse(messages);
-        const elapsed = Date.now() - startTime;
+        let aiResponse = await getDeepseekResponse(messages);
 
-        logger.success('BOT', `Respuesta IA (${elapsed}ms): "${aiResponse.substring(0, 80)}..."`);
-        logger.info('BOT', '═══════════════════════════════════════');
+        session.conversationHistory.push({ role: 'user', content: text });
+        session.conversationHistory.push({ role: 'assistant', content: aiResponse });
+
+        if (session.conversationHistory.length > 10) {
+            session.conversationHistory = session.conversationHistory.slice(-10);
+        }
+
+        await saveConversacion({
+            telefonoWhatsapp: fromJid,
+            dniProporcionado: session.cachedClient?.NRO_DNI || null,
+            mensajeCliente: text,
+            respuestaBot: aiResponse,
+            intent: 'AI_RESPONSE'
+        });
+
         return aiResponse;
     } catch (err) {
-        logger.error('AI', 'Error en respuesta AI', err);
-        logger.info('BOT', '═══════════════════════════════════════');
-        return templates.errorFallback();
+        console.error('Error calling AI:', err.message);
+        return 'Lo siento, error técnico. Intenta más tarde o escribe "asesor".';
     }
 }
 
