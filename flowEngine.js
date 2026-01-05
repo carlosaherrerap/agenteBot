@@ -178,86 +178,45 @@ async function runFlow(incomingText, fromJid) {
     let client = session?.client || null;
 
     if (session) {
-        logger.debug('REDIS', `Sesión activa encontrada para ${fromJid}`);
+        logger.info('REDIS', `📦 Sesión encontrada - identified: ${session.identified}, waitingFor: ${session.waitingFor}`);
         // Extend session on activity
         await redis.extendSession(fromJid);
+    } else {
+        logger.info('REDIS', '📭 Sin sesión previa');
     }
 
-    // ========== 3. FIRST CONTACT ==========
-    if (!client) {
-        // If it's a Linked ID, we can't search by phone - go straight to asking for document
-        if (isLid) {
-            logger.info('BOT', 'Cliente con Linked ID - pidiendo DNI/RUC/Cuenta');
-
-            // Save partial session
-            await redis.setSession(fromJid, {
-                client: null,
-                identified: false,
-                waitingFor: 'document',
-                isLid: true
-            });
-
-            return templates.greetingNeutral();
-        }
-
-        // For normal phone JIDs, search by phone
-        logger.phone(clientPhone, false);
-
-        // Search phone in database
-        client = await sql.findByPhone(clientPhone);
-
-        if (client) {
-            // Found by phone - save session and greet with name
-            logger.phone(clientPhone, true);
-            logger.success('BOT', `Cliente identificado: ${client.NOMBRE_CLIENTE}`);
-
-            await redis.setSession(fromJid, {
-                client,
-                identified: true,
-                identifiedBy: 'phone'
-            });
-
-            return templates.greetingWithName(client.NOMBRE_CLIENTE);
-        } else {
-            // Phone not found - save to Excel and ask for ID
-            excel.appendNewPhone({
-                CUENTA_CREDITO: '',
-                NOMBRE_CLIENTE: '',
-                telefono_nuevo: clientPhone
-            });
-
-            // Save partial session
-            await redis.setSession(fromJid, {
-                client: null,
-                identified: false,
-                waitingFor: 'document'
-            });
-
-            return templates.greetingNeutral();
-        }
-    }
-
-    // ========== 4. IF WAITING FOR DOCUMENT/ACCOUNT ==========
+    // ========== 3. IF WAITING FOR DOCUMENT/ACCOUNT (CHECK THIS FIRST!) ==========
+    // This MUST come before first contact check to avoid re-greeting
     if (session && !session.identified && session.waitingFor === 'document') {
-        logger.info('BOT', 'Paso 4: Cliente esperando identificación...');
+        logger.info('BOT', '═══════════════════════════════════════════════');
+        logger.info('BOT', 'PASO 3: Cliente esperando identificación');
+        logger.info('BOT', `Texto recibido: "${text}"`);
+
         const validation = validateInput(text);
+        logger.info('BOT', `Tipo detectado: ${validation.type}, valor: ${validation.value}`);
 
         if (validation.type === 'invalid') {
+            logger.warn('BOT', `Input inválido: ${validation.error}`);
             return validation.error;
         }
 
         // Search based on input type
         if (validation.type === 'dni' || validation.type === 'ruc') {
             // Search by document (DNI or RUC)
-            logger.info('BOT', `Buscando por documento: ${validation.value}`);
+            logger.info('SQL', `🔍 Buscando por DOCUMENTO: ${validation.value}`);
             client = await sql.findByDocument(validation.value);
+            if (client) {
+                logger.success('SQL', `✅ Cliente encontrado: ${client.NOMBRE_CLIENTE}`);
+            } else {
+                logger.warn('SQL', `❌ No se encontró cliente con documento: ${validation.value}`);
+            }
         } else if (validation.type === 'phone') {
             // Search by phone
-            logger.info('BOT', `Buscando por teléfono: ${validation.value}`);
+            logger.info('SQL', `🔍 Buscando por TELÉFONO: ${validation.value}`);
             client = await sql.findByPhone(validation.value);
         } else if (validation.type === 'account') {
             // Search by account
-            logger.info('BOT', `Buscando por cuenta: ${validation.value}`);
+            logger.info('SQL', `🔍 Buscando por CUENTA: ${validation.value}`);
             client = await sql.findByAccount(validation.value);
         } else {
             // Text input - might be trying to chat, ask again for identification
@@ -281,11 +240,12 @@ async function runFlow(incomingText, fromJid) {
                 });
             }
 
-            logger.success('BOT', `Cliente identificado por ${validation.type}: ${client.NOMBRE_CLIENTE}`);
+            logger.success('BOT', `✅ Cliente identificado por ${validation.type}: ${client.NOMBRE_CLIENTE}`);
+            logger.info('BOT', '═══════════════════════════════════════════════');
             return templates.menuOptions(getFirstName(client.NOMBRE_CLIENTE));
         } else {
             // Not found
-            logger.warn('BOT', `No se encontró cliente con ${validation.type}: ${validation.value}`);
+            logger.warn('BOT', `❌ No se encontró cliente con ${validation.type}: ${validation.value}`);
 
             if (validation.type === 'phone' && !isLinkedId(fromJid)) {
                 // Save new phone and ask for account
@@ -303,7 +263,69 @@ async function runFlow(incomingText, fromJid) {
             }
 
             // Account not found = no debt
+            logger.info('BOT', '═══════════════════════════════════════════════');
             return templates.noDebtFound();
+        }
+    }
+
+    // ========== 4. FIRST CONTACT (no session or already identified) ==========
+    if (!client && !session) {
+        logger.info('BOT', '═══════════════════════════════════════════════');
+        logger.info('BOT', 'PASO 4: Primer contacto - nuevo cliente');
+
+        // If it's a Linked ID, we can't search by phone - go straight to asking for document
+        if (isLid) {
+            logger.info('BOT', 'Cliente con Linked ID - pidiendo DNI/RUC/Cuenta');
+
+            // Save partial session
+            await redis.setSession(fromJid, {
+                client: null,
+                identified: false,
+                waitingFor: 'document',
+                isLid: true
+            });
+
+            logger.info('BOT', '═══════════════════════════════════════════════');
+            return templates.greetingNeutral();
+        }
+
+        // For normal phone JIDs, search by phone
+        logger.phone(clientPhone, false);
+
+        // Search phone in database
+        logger.info('SQL', `🔍 Buscando teléfono en BD: ${clientPhone}`);
+        client = await sql.findByPhone(clientPhone);
+
+        if (client) {
+            // Found by phone - save session and greet with name
+            logger.phone(clientPhone, true);
+            logger.success('BOT', `Cliente identificado: ${client.NOMBRE_CLIENTE}`);
+
+            await redis.setSession(fromJid, {
+                client,
+                identified: true,
+                identifiedBy: 'phone'
+            });
+
+            logger.info('BOT', '═══════════════════════════════════════════════');
+            return templates.greetingWithName(client.NOMBRE_CLIENTE);
+        } else {
+            // Phone not found - save to Excel and ask for ID
+            excel.appendNewPhone({
+                CUENTA_CREDITO: '',
+                NOMBRE_CLIENTE: '',
+                telefono_nuevo: clientPhone
+            });
+
+            // Save partial session
+            await redis.setSession(fromJid, {
+                client: null,
+                identified: false,
+                waitingFor: 'document'
+            });
+
+            logger.info('BOT', '═══════════════════════════════════════════════');
+            return templates.greetingNeutral();
         }
     }
 

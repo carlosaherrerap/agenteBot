@@ -275,9 +275,15 @@ async function findByAccount(account) {
  * @returns {object|null} Client data or null
  */
 async function findByDocument(doc) {
-    if (!doc) return null;
+    if (!doc) {
+        logger.warn('SQL', 'findByDocument llamado sin documento');
+        return null;
+    }
 
     try {
+        logger.info('SQL', '═══════════════════════════════════════════════');
+        logger.info('SQL', `🔍 BUSCANDO DOCUMENTO: ${doc}`);
+
         const tableName = process.env.SQL_TABLE || 'BotHuancayo.Base';
         const queryStr = `
             SELECT TOP 1 * 
@@ -286,19 +292,23 @@ async function findByDocument(doc) {
             AND DOCUMENTO = @p0
         `;
 
-        logger.debug('SQL', `Buscando documento: ${doc}`);
+        logger.debug('SQL', `Query: DOCUMENTO = ${doc}, ESTADO = ${ESTADO_FILTRO}`);
         const result = await query(queryStr, [doc]);
 
         if (result.length > 0) {
-            logger.success('SQL', `Cliente encontrado por documento: ${result[0].NOMBRE_CLIENTE}`);
+            logger.success('SQL', `✅ CLIENTE ENCONTRADO POR DOCUMENTO`);
+            logger.info('SQL', `   NOMBRE: ${result[0].NOMBRE_CLIENTE}`);
+            logger.info('SQL', `   CUENTA: ${result[0].CUENTA_CREDITO}`);
+            logger.info('SQL', '═══════════════════════════════════════════════');
             return result[0];
         }
 
-        logger.debug('SQL', `Documento no encontrado: ${doc}`);
+        logger.warn('SQL', `❌ DOCUMENTO NO ENCONTRADO: ${doc}`);
+        logger.info('SQL', '═══════════════════════════════════════════════');
         return null;
 
     } catch (err) {
-        logger.error('SQL', 'Error buscando por documento', err);
+        logger.error('SQL', `Error buscando por documento: ${err.message}`);
         return null;
     }
 }
