@@ -11,12 +11,11 @@ services:
       - "3000:3000"
     volumes:
       - ./auth:/app/auth
-      - ./.env:/app/.env
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - REDIS_HOST=redis
-      - SQL_HOST=host.docker.internal
-      - SQL_DRIVER=ODBC Driver 18 for SQL Server
     depends_on:
       redis:
         condition: service_healthy

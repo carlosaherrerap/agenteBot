@@ -1,0 +1,12 @@
+node_modules
+npm-debug.log
+auth/*
+.git
+.env
+Dockerfile
+docker-compose.yml
+.dockerignore
+sql_debug.log
+*.png
+*.jpg
+*.xlsx

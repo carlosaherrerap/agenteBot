@@ -4,7 +4,8 @@
  * Supports both SQL Server Authentication and Windows Authentication
  */
 require('dotenv').config();
-const sql = require('mssql/msnodesqlv8');
+const isWindows = process.platform === 'win32';
+const sql = isWindows ? require('mssql/msnodesqlv8') : require('mssql');
 const logger = require('./logger');
 
 // Connection status tracking
@@ -15,36 +16,54 @@ let connectionStatus = {
     lastError: null
 };
 
-// Build connection string based on auth type
-function buildConnectionString() {
-    const server = process.env.SQL_HOST || 'localhost';
-    const database = process.env.SQL_DATABASE || 'ContextBot';
-    const user = process.env.SQL_USER || '';
-    const password = process.env.SQL_PASSWORD || '';
-    const driver = process.env.SQL_DRIVER || 'ODBC Driver 17 for SQL Server';
-    const useWindowsAuth = process.env.SQL_WINDOWS_AUTH === 'true' || !user || user === 'WIN-HKBUI0ID607';
+/**
+ * Build connection configuration based on platform and environment
+ */
+function buildConfig() {
+    const stripQuotes = (str) => {
+        if (!str) return '';
+        return str.replace(/^['"]|['"]$/g, '');
+    };
 
-    let connString = `Driver={${driver}};Server=${server};Database=${database};`;
+    const server = stripQuotes(process.env.SQL_HOST) || 'localhost';
+    const database = stripQuotes(process.env.SQL_DATABASE) || 'ContextBot';
+    const user = stripQuotes(process.env.SQL_USER) || '';
+    const password = stripQuotes(process.env.SQL_PASSWORD) || '';
+    const driver = stripQuotes(process.env.SQL_DRIVER) || 'ODBC Driver 18 for SQL Server';
+    const useWindowsAuth = process.env.SQL_WINDOWS_AUTH === 'true' || (!user && isWindows);
 
-    if (useWindowsAuth) {
-        // Windows Authentication (Trusted Connection)
-        connString += 'Trusted_Connection=yes;';
-        logger.info('SQL', `Usando Autenticación de Windows en ${server}`);
+    if (isWindows) {
+        // Windows: Use msnodesqlv8 with Connection String
+        let connString = `Driver={${driver}};Server=${server};Database=${database};`;
+        if (useWindowsAuth) {
+            connString += 'Trusted_Connection=yes;';
+            logger.info('SQL', `Usando Autenticación de Windows en ${server} (msnodesqlv8)`);
+        } else {
+            connString += `UID=${user};PWD=${password};`;
+            logger.info('SQL', `Usando Autenticación SQL Server (usuario: ${user})`);
+        }
+        connString += 'Encrypt=no;TrustServerCertificate=yes;';
+        return { connectionString: connString };
     } else {
-        // SQL Server Authentication
-        connString += `UID=${user};PWD=${password};`;
-        logger.info('SQL', `Usando Autenticación SQL Server (usuario: ${user})`);
+        // Linux/Docker: Use standard mssql (tedious) with config object
+        logger.info('SQL', `Usando driver Tedious en ${server} (Linux/Docker)`);
+        return {
+            user: user,
+            password: password,
+            server: server,
+            database: database,
+            options: {
+                encrypt: false, // Set to true if using Azure
+                trustServerCertificate: true,
+                enableArithAbort: true
+            },
+            port: parseInt(process.env.SQL_PORT || '1433')
+        };
     }
-
-    connString += 'Encrypt=no;TrustServerCertificate=yes;';
-
-    return connString;
 }
 
 // Database configuration
-const config = {
-    connectionString: buildConnectionString()
-};
+const config = buildConfig();
 
 let pool = null;
 
