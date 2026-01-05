@@ -121,16 +121,39 @@ async function getSession(jid) {
 }
 
 /**
+ * Callback function for session expiration
+ * Set from server.js to send WhatsApp message
+ */
+let onSessionExpiredCallback = null;
+
+/**
+ * Set callback for session expiration
+ * @param {function} callback - function(jid) called when session expires
+ */
+function setOnSessionExpired(callback) {
+    onSessionExpiredCallback = callback;
+}
+
+/**
  * Reset memory cache timer for TTL
  */
 function resetMemoryTimer(jid) {
     if (memoryCacheTimers.has(jid)) {
         clearTimeout(memoryCacheTimers.get(jid));
     }
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
         memoryCache.delete(jid);
         memoryCacheTimers.delete(jid);
         logger.sessionExpired(jid);
+
+        // Call the callback to send WhatsApp message
+        if (onSessionExpiredCallback) {
+            try {
+                await onSessionExpiredCallback(jid);
+            } catch (err) {
+                logger.error('REDIS', 'Error en callback de sesión expirada', err);
+            }
+        }
     }, SESSION_TTL_MS);
     memoryCacheTimers.set(jid, timer);
 }
@@ -249,5 +272,6 @@ module.exports = {
     deleteSession,
     extendSession,
     isRedisConnected,
-    getStatus
+    getStatus,
+    setOnSessionExpired
 };

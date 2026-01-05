@@ -152,6 +152,20 @@ async function startWhatsApp() {
     // Connect to Redis
     await redis.connect();
 
+    // Register session expiration callback to send WhatsApp message
+    const templates = require('./utils/templates');
+    redis.setOnSessionExpired(async (jid) => {
+        if (sock && whatsappConnected) {
+            try {
+                const message = templates.sessionExpired();
+                await sock.sendMessage(jid, { text: message });
+                logger.info('WHATSAPP', `📤 Mensaje de sesión expirada enviado a ${jid.split('@')[0]}`);
+            } catch (err) {
+                logger.error('WHATSAPP', 'Error enviando mensaje de sesión expirada', err);
+            }
+        }
+    });
+
     // Start WhatsApp
     connectionState = 'connecting';
     const { state, saveCreds } = await useMultiFileAuthState(path.resolve(__dirname, 'auth'));
@@ -296,9 +310,22 @@ async function startWhatsApp() {
 
                 if (response) {
                     logger.success('BOT', `Respuesta generada en ${elapsed}ms`);
-                    await sock.sendMessage(from, { text: response });
-                    addMessageToChat(from, 'bot', response);
-                    logger.info('BOT', '✅ Mensaje enviado correctamente');
+
+                    // Handle array of messages (send multiple)
+                    if (Array.isArray(response)) {
+                        for (const msgText of response) {
+                            await sock.sendMessage(from, { text: msgText });
+                            addMessageToChat(from, 'bot', msgText);
+                            // Small delay between messages for natural feel
+                            await new Promise(r => setTimeout(r, 300));
+                        }
+                        logger.info('BOT', `✅ ${response.length} mensajes enviados correctamente`);
+                    } else {
+                        // Single message
+                        await sock.sendMessage(from, { text: response });
+                        addMessageToChat(from, 'bot', response);
+                        logger.info('BOT', '✅ Mensaje enviado correctamente');
+                    }
                 } else {
                     logger.debug('BOT', 'Sin respuesta (mensaje de grupo o filtrado)');
                 }

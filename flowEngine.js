@@ -312,30 +312,94 @@ async function runFlow(incomingText, fromJid) {
         }
     }
 
-    // ========== 5. MENU OPTIONS (1-4) ==========
-    if (/^[1-4]$/.test(text) && client) {
+    // ========== 5. MAIN MENU OPTIONS (1-4) ==========
+    if (/^[1-4]$/.test(text) && client && (!session?.subMenu || session?.subMenu === 'main')) {
         const option = parseInt(text);
+        logger.info('BOT', `Opción de menú principal: ${option}`);
 
         switch (option) {
-            case 1: // Detalles deuda
-                return templates.debtDetails(client);
+            case 1: // Detalles deuda - show sub-menu
+                await redis.setSession(fromJid, {
+                    ...session,
+                    client,
+                    subMenu: 'debt'
+                });
+                return templates.debtDetailsMenu();
             case 2: // Oficinas
                 return templates.officesInfo();
-            case 3: // Actualizar teléfono
+            case 3: // Actualizar teléfono - servicio no disponible
                 return templates.updatePhoneRequest();
-            case 4: // Asesor
-                const doc = client.DOCUMENTO || 'Sin documento';
-                await sendAdvisorEmail(doc, `Solicitud de contacto - ${client.NOMBRE_CLIENTE}`);
-                return templates.advisorTransfer();
+            case 4: // Asesor - pedir DNI + consulta
+                await redis.setSession(fromJid, {
+                    ...session,
+                    client,
+                    waitingFor: 'advisor_request'
+                });
+                return templates.advisorRequest();
         }
     }
 
-    // ========== 6. ADVISOR REQUEST ==========
+    // ========== 5.1 DEBT SUB-MENU OPTIONS (1-4) ==========
+    if (/^[1-4]$/.test(text) && client && session?.subMenu === 'debt') {
+        const option = parseInt(text);
+        logger.info('BOT', `Opción de sub-menú deuda: ${option}`);
+
+        const saldoCapital = parseFloat(client.SALDO_CAPITAL || 0).toFixed(2);
+        const saldoCuota = parseFloat(client.SALDO_CUOTA || 0).toFixed(2);
+        const diasAtraso = client.DIAS_ATRASO || 0;
+
+        switch (option) {
+            case 1: // Saldo Capital
+                return templates.debtSaldoCapital(saldoCapital);
+            case 2: // Cuota Pendiente
+                return templates.debtCuotaPendiente(saldoCuota);
+            case 3: // Días de Atraso
+                return templates.debtDiasAtraso(diasAtraso);
+            case 4: // Regresar al menú anterior
+                await redis.setSession(fromJid, {
+                    ...session,
+                    client,
+                    subMenu: 'main'
+                });
+                return templates.menuOptions(getFirstName(client.NOMBRE_CLIENTE));
+        }
+    }
+
+    // ========== 5.2 WAITING FOR ADVISOR REQUEST (DNI + consulta) ==========
+    if (session?.waitingFor === 'advisor_request') {
+        // Check if message contains DNI pattern and query
+        const dniMatch = text.match(/(?:dni|documento)\s*[:\-]?\s*(\d{8})/i);
+        if (dniMatch) {
+            const dni = dniMatch[1];
+            const query = text.replace(/(?:dni|documento)\s*[:\-]?\s*\d{8},?\s*/i, '').trim() || 'Solicitud de contacto';
+
+            logger.info('BOT', `Solicitud de asesor - DNI: ${dni}, Consulta: ${query}`);
+
+            await sendAdvisorEmail(dni, query);
+
+            // Reset session state
+            await redis.setSession(fromJid, {
+                ...session,
+                waitingFor: null,
+                subMenu: 'main'
+            });
+
+            return templates.advisorTransferConfirm();
+        } else {
+            // No DNI found, ask again
+            return templates.advisorRequest();
+        }
+    }
+
+    // ========== 6. ADVISOR REQUEST BY KEYWORD ==========
     const advisorRegex = /(asesor|humano|hablar con|agente|comunicarme|ayuda personal)/i;
     if (advisorRegex.test(lowText)) {
-        const doc = client?.DOCUMENTO || 'Sin documento';
-        await sendAdvisorEmail(doc, text);
-        return templates.advisorTransfer();
+        await redis.setSession(fromJid, {
+            ...session,
+            client,
+            waitingFor: 'advisor_request'
+        });
+        return templates.advisorRequest();
     }
 
     // ========== 7. OFF-TOPIC DETECTION ==========
