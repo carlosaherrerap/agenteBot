@@ -3,108 +3,169 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InformaPeru - Chatbot Cobranza</title>
+    <title>Max - InformaPeru Cobranza Inteligente</title>
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
-    <div class="container">
-        <div class="card">
-            <div class="logo">
-                <span class="logo-icon">🤖</span>
-                <h1>Max</h1>
-                <p class="subtitle">Asistente Virtual de Cobranzas</p>
+    <header>
+        <div class="container nav">
+            <div class="logo-container">
+                <div class="logo-icon">M</div>
+                <div class="logo-text">
+                    <h1>MAX</h1>
+                    <p>Asistente de Cobranzas</p>
+                </div>
             </div>
-            
-            <!-- Estados de conexión -->
-            <div id="connectionStates">
-                <!-- Estado: Esperando QR -->
-                <div id="stateQR" class="connection-state active">
-                    <div class="qr-container">
-                        <img id="qrImage" src="/qr" alt="QR Code" onerror="this.style.display='none'"/>
-                        <div id="qrPlaceholder" class="qr-placeholder">
-                            <div class="spinner"></div>
-                            <p>Generando código QR...</p>
-                        </div>
+            <div class="nav-links">
+                <button class="btn btn-primary" onclick="openModal()">
+                    <i data-lucide="qr-code"></i> Conectar WhatsApp
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Hero Section -->
+        <section class="hero">
+            <div class="container hero-content">
+                <div class="hero-text">
+                    <h2>Cobranza inteligente, resultados reales</h2>
+                    <p>Optimice su gestión de cobranzas con nuestro asistente virtual inteligente. Atención 24/7 de forma personalizada y eficiente.</p>
+                    <div class="hero-btns">
+                        <button class="btn btn-primary" onclick="openModal()">
+                            <i data-lucide="message-square"></i> Iniciar Sesión con QR
+                        </button>
                     </div>
-                    <p class="instruction">Escanea el código QR con <strong>WhatsApp</strong></p>
-                    <p class="hint">Abre WhatsApp > Dispositivos vinculados > Vincular dispositivo</p>
                 </div>
-                
-                <!-- Estado: Conectando -->
-                <div id="stateConnecting" class="connection-state">
-                    <div class="spinner large"></div>
-                    <p class="connecting-text">Conectando a WhatsApp...</p>
-                    <p class="hint">Por favor espera un momento</p>
-                </div>
-                
-                <!-- Estado: Conectado -->
-                <div id="stateConnected" class="connection-state">
-                    <div class="success-icon">✅</div>
-                    <p class="success-text">¡Conectado exitosamente!</p>
-                    <p class="hint">Redirigiendo al dashboard...</p>
+                <div class="hero-image">
+                    <img src="hero.png" alt="Gestión de cobranza profesional">
                 </div>
             </div>
+        </section>
+
+        <!-- Features Section -->
+        <section class="features">
+            <div class="container">
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon"><i data-lucide="cpu"></i></div>
+                        <h3>Identificación Inteligente</h3>
+                        <p>Detección automática de DNI, RUC y cuentas para una validación inmediata y segura.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon"><i data-lucide="clock"></i></div>
+                        <h3>Atención 24/7</h3>
+                        <p>Su equipo de cobranzas nunca duerme. Respuestas instantáneas en cualquier momento del día.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon"><i data-lucide="shield-check"></i></div>
+                        <h3>Seguridad y Confianza</h3>
+                        <p>Garantía de privacidad y profesionalismo en cada interacción con sus clientes.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="main-footer">
+        <div class="container">
+            <p>InformaPeru © 2026 - Conectando soluciones financieras de forma elegante y sutil.</p>
+        </div>
+    </footer>
+
+    <!-- QR Connection Modal -->
+    <div id="qrModal" class="modal-overlay">
+        <div class="modal-content">
+            <button class="btn-close" onclick="closeModal()">&times;</button>
+            <h2 id="modalTitle">Conectar WhatsApp</h2>
+            <p id="modalSubtitle">Escanea el código para habilitar el asistente</p>
             
-            <!-- Status indicators -->
+            <div class="qr-wrapper">
+                <div id="qrPlaceholder" class="qr-placeholder" style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                    <svg class="spinner" width="40" height="40" viewBox="0 0 50 50">
+                        <circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="5" stroke="#003366"></circle>
+                    </svg>
+                    <p style="margin-top: 15px; font-size: 14px; color: #666;">Generando código...</p>
+                </div>
+                <img id="qrImage" src="" alt="QR Code" style="display: none;">
+            </div>
+
+            <div id="stateConnecting" style="display: none;">
+                <p class="success-text" style="color: var(--primary); font-weight: 600;">Verificando conexión...</p>
+            </div>
+
+            <div id="stateConnected" style="display: none;">
+                <div style="font-size: 40px; margin-bottom: 10px;">✅</div>
+                <p style="color: var(--success); font-weight: 700;">¡Conectado!</p>
+                <p style="font-size: 13px; color: #666;">Redirigiendo al panel de control...</p>
+            </div>
+
             <div class="status-bar">
                 <div class="status-item" id="statusSQL">
-                    <span class="status-dot"></span>
-                    <span>SQL Server</span>
+                    <span class="status-dot"></span> SQL
                 </div>
                 <div class="status-item" id="statusRedis">
-                    <span class="status-dot"></span>
-                    <span>Redis</span>
+                    <span class="status-dot"></span> Redis
                 </div>
                 <div class="status-item" id="statusWA">
-                    <span class="status-dot"></span>
-                    <span>WhatsApp</span>
+                    <span class="status-dot"></span> WA
                 </div>
             </div>
         </div>
-        
-        <footer class="footer">
-            <p>InformaPeru © 2026 - Sistema de Cobranzas</p>
-        </footer>
     </div>
-    
+
     <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        const qrModal = document.getElementById('qrModal');
         const qrImage = document.getElementById('qrImage');
         const qrPlaceholder = document.getElementById('qrPlaceholder');
-        const stateQR = document.getElementById('stateQR');
         const stateConnecting = document.getElementById('stateConnecting');
         const stateConnected = document.getElementById('stateConnected');
         
         let currentState = 'disconnected';
-        
-        // Check connection status every 2 seconds
+        let isModalOpen = false;
+
+        function openModal() {
+            qrModal.style.display = 'flex';
+            isModalOpen = true;
+            checkStatus(); // Start polling
+        }
+
+        function closeModal() {
+            qrModal.style.display = 'none';
+            isModalOpen = false;
+        }
+
         async function checkStatus() {
+            if (!isModalOpen) return;
+
             try {
                 const response = await fetch('/api/connection-status');
                 const data = await response.json();
                 
-                // Update status dots
                 updateStatusDot('statusSQL', data.sql);
                 updateStatusDot('statusRedis', data.redis);
                 updateStatusDot('statusWA', data.whatsapp);
                 
-                // Handle state changes
-                if (data.state !== currentState) {
-                    currentState = data.state;
-                    updateConnectionState(data.state);
+                if (data.state === 'connected' || data.whatsapp) {
+                    showConnected();
+                    setTimeout(() => window.location.href = '/dashboard.html', 1500);
+                } else if (data.state === 'connecting') {
+                    showConnecting();
+                } else if (data.state === 'qr' || data.state === 'disconnected') {
+                    showQR();
                 }
-                
-                // Redirect to dashboard when connected
-                if (data.whatsapp) {
-                    setTimeout(() => {
-                        window.location.href = '/dashboard.html';
-                    }, 1500);
-                }
+
             } catch (err) {
                 console.error('Error checking status:', err);
             }
         }
-        
+
         function updateStatusDot(elementId, isConnected) {
             const element = document.getElementById(elementId);
             const dot = element.querySelector('.status-dot');
@@ -116,48 +177,60 @@
                 dot.classList.add('disconnected');
             }
         }
-        
-        function updateConnectionState(state) {
-            // Hide all states
-            stateQR.classList.remove('active');
-            stateConnecting.classList.remove('active');
-            stateConnected.classList.remove('active');
+
+        function showQR() {
+            qrImage.style.display = 'block';
+            qrPlaceholder.style.display = 'none';
+            stateConnecting.style.display = 'none';
+            stateConnected.style.display = 'none';
             
-            // Show appropriate state
-            switch(state) {
-                case 'qr':
-                case 'disconnected':
-                    stateQR.classList.add('active');
-                    refreshQR();
-                    break;
-                case 'connecting':
-                    stateConnecting.classList.add('active');
-                    break;
-                case 'connected':
-                    stateConnected.classList.add('active');
-                    break;
+            // Auto refresh QR if empty or every 20s
+            if (!qrImage.src.includes('qr')) {
+                refreshQR();
             }
         }
-        
-        function refreshQR() {
-            qrImage.src = '/qr?' + new Date().getTime();
-        }
-        
-        // QR image load handlers
-        qrImage.onload = function() {
-            qrPlaceholder.style.display = 'none';
-            qrImage.style.display = 'block';
-        };
-        
-        qrImage.onerror = function() {
-            qrPlaceholder.style.display = 'flex';
+
+        function showConnecting() {
             qrImage.style.display = 'none';
-        };
-        
-        // Initial check and start polling
-        checkStatus();
+            qrPlaceholder.style.display = 'none';
+            stateConnecting.style.display = 'block';
+            stateConnected.style.display = 'none';
+        }
+
+        function showConnected() {
+            qrImage.style.display = 'none';
+            qrPlaceholder.style.display = 'none';
+            stateConnecting.style.display = 'none';
+            stateConnected.style.display = 'block';
+        }
+
+        function refreshQR() {
+            if (isModalOpen && currentState !== 'connected') {
+                qrImage.src = '/qr?' + new Date().getTime();
+            }
+        }
+
         setInterval(checkStatus, 2000);
-        setInterval(refreshQR, 20000); // Refresh QR every 20 seconds
+        setInterval(refreshQR, 20000);
     </script>
+
+    <style>
+        /* Extra spinner for modal */
+        .spinner {
+            animation: rotate 2s linear infinite;
+        }
+        .path {
+            stroke-dasharray: 1, 150;
+            stroke-dashoffset: 0;
+            stroke-linecap: round;
+            animation: dash 1.5s ease-in-out infinite;
+        }
+        @keyframes rotate { 100% { transform: rotate(360deg); } }
+        @keyframes dash {
+            0% { stroke-dasharray: 1, 150; stroke-dashoffset: 0; }
+            50% { stroke-dasharray: 90, 150; stroke-dashoffset: -35; }
+            100% { stroke-dasharray: 90, 150; stroke-dashoffset: -124; }
+        }
+    </style>
 </body>
 </html>

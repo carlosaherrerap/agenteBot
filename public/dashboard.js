@@ -17,12 +17,15 @@ const btnToggleBot = document.getElementById('btnToggleBot');
 const btnLogout = document.getElementById('btnLogout');
 const textInput = document.getElementById('textInput');
 const btnSend = document.getElementById('btnSend');
-const inputHint = document.getElementById('inputHint');
-
 // Status indicators
 const indSQL = document.getElementById('indSQL');
 const indRedis = document.getElementById('indRedis');
 const indWA = document.getElementById('indWA');
+
+// Layout sections
+const messageInputArea = document.getElementById('messageInputArea');
+const botStatusDot = document.getElementById('botStatusDot');
+const btnToggleText = document.getElementById('btnToggleText');
 
 // ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
@@ -69,9 +72,9 @@ async function checkSystemStatus() {
 
 function updateIndicator(element, isConnected) {
     if (isConnected) {
-        element.classList.add('connected');
+        element.classList.add('on');
     } else {
-        element.classList.remove('connected');
+        element.classList.remove('on');
     }
 }
 
@@ -122,17 +125,15 @@ async function loadChats() {
         chatList.innerHTML = filteredChats.map(chat => `
             <div class="chat-item ${chat.jid === selectedChatJid ? 'active' : ''}" 
                  onclick="selectChat('${encodeURIComponent(chat.jid)}')">
-                <div class="avatar">${getInitials(chat.phoneNumber)}</div>
-                <div class="info">
-                    <div class="name">
-                        +${chat.phoneNumber}
-                        ${chat.isPaused ? '<span class="paused-indicator">PAUSADO</span>' : ''}
+                <div class="chat-avatar">${getInitials(chat.phoneNumber)}</div>
+                <div class="chat-details">
+                    <div class="chat-top">
+                        <h3>+${chat.phoneNumber}</h3>
+                        <span class="chat-time">${formatTime(chat.lastActivity)}</span>
                     </div>
-                    <div class="preview">${chat.lastMessage || 'Sin mensajes'}</div>
-                </div>
-                <div class="meta">
-                    <div class="time">${formatTime(chat.lastActivity)}</div>
-                    <div class="badge">${chat.messageCount}</div>
+                    <div class="chat-preview">
+                        ${chat.isPaused ? '⏸️ [PAUSADO] ' : ''}${chat.lastMessage || 'Sin mensajes'}
+                    </div>
                 </div>
             </div>
         `).join('');
@@ -153,15 +154,16 @@ async function selectChat(encodedJid) {
         console.log('Selecting chat:', jid);
         selectedChatJid = jid;
 
-        // Update UI
+        // Update UI Visibility
         welcomeScreen.style.display = 'none';
+        chatHeader.style.visibility = 'visible';
+        messageInputArea.style.visibility = 'visible';
         btnToggleBot.disabled = false;
 
-        // Highlight selected chat - update active class based on jid match
+        // Highlight selected chat
         document.querySelectorAll('.chat-item').forEach(item => {
             item.classList.remove('active');
         });
-        // Find the clicked item by matching the jid
         const clickedItem = document.querySelector(`.chat-item[onclick*="${encodedJid}"]`);
         if (clickedItem) {
             clickedItem.classList.add('active');
@@ -191,7 +193,6 @@ async function loadMessages() {
         const data = await response.json();
 
         // Update header
-        chatPhone.textContent = `+${data.phoneNumber || selectedChatJid.split('@')[0]}`;
         chatName.textContent = `+${data.phoneNumber || selectedChatJid.split('@')[0]}`;
         chatAvatar.textContent = getInitials(data.phoneNumber || '');
 
@@ -210,26 +211,14 @@ async function loadMessages() {
 }
 
 function renderMessages(messages) {
-    if (messages.length === 0) {
-        messagesContainer.innerHTML = `
-            <div class="welcome-screen">
-                <p>No hay mensajes en esta conversación</p>
-            </div>
-        `;
-        return;
-    }
-
-    messagesContainer.innerHTML = `
-        <div class="messages-list">
-            ${messages.map(msg => `
-                <div class="message ${msg.from}">
-                    ${msg.from !== 'client' ? `<div class="sender-tag">${msg.from === 'bot' ? '🤖 Bot' : '👤 Tú'}</div>` : ''}
-                    <div class="text">${escapeHtml(msg.text)}</div>
-                    <div class="time">${formatMessageTime(msg.timestamp)}</div>
-                </div>
-            `).join('')}
+    messagesContainer.innerHTML = messages.map(msg => `
+        <div class="message ${msg.from}">
+            <div class="text">${escapeHtml(msg.text)}</div>
+            <span class="message-time">${formatMessageTime(msg.timestamp)}</span>
         </div>
-    `;
+    `).join('');
+
+    lucide.createIcons();
 
     // Scroll to bottom
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -254,33 +243,24 @@ async function toggleBot() {
 }
 
 function updateBotStatusUI(isPaused) {
-    const statusDot = btnToggleBot.querySelector('.status-dot');
-    const btnText = btnToggleBot.querySelector('.btn-text');
-
     if (isPaused) {
-        statusDot.classList.add('paused');
-        statusDot.classList.remove('active');
-        btnText.textContent = 'Bot Pausado';
-        btnToggleBot.style.background = 'var(--warning)';
-        btnToggleBot.style.color = '#000';
+        botStatusDot.style.background = '#dc3545';
+        btnToggleText.textContent = 'Bot Pausado';
+        btnToggleBot.classList.add('paused');
 
         textInput.disabled = false;
         textInput.placeholder = 'Escribe un mensaje...';
         btnSend.disabled = false;
-        inputHint.textContent = '👤 Modo manual - Tus mensajes serán enviados directamente';
-        inputHint.classList.add('manual');
+        btnSend.classList.add('active');
     } else {
-        statusDot.classList.remove('paused');
-        statusDot.classList.add('active');
-        btnText.textContent = 'Bot Activo';
-        btnToggleBot.style.background = '';
-        btnToggleBot.style.color = '';
+        botStatusDot.style.background = '#00a884';
+        btnToggleText.textContent = 'Bot Activo';
+        btnToggleBot.classList.remove('paused');
 
         textInput.disabled = true;
-        textInput.placeholder = 'El bot está activo. Pausalo para escribir manualmente...';
+        textInput.placeholder = 'El bot está activo...';
         btnSend.disabled = true;
-        inputHint.textContent = '🤖 El bot está respondiendo automáticamente';
-        inputHint.classList.remove('manual');
+        btnSend.classList.remove('active');
     }
 }
 

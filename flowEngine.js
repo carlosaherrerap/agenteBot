@@ -244,6 +244,16 @@ async function runFlow(incomingText, fromJid, resolvedPhone = null) {
                 identifiedBy: validation.type
             });
 
+            // IF @lid, map it to the phone found in DB for future messages
+            if (isLinkedId(fromJid)) {
+                const dbPhone = client.TELEFONO_TITULAR || client.TELEFONO_MOVIL || client.TELEFONO_RESIDENCIA;
+                if (dbPhone && dbPhone.length >= 9) {
+                    const cleanPhone = dbPhone.replace(/\D/g, '').slice(-9);
+                    await redis.setLidMapping(fromJid, cleanPhone);
+                    logger.success('BOT', `🔗 Vinculado LID a Teléfono DB: ${fromJid} -> ${cleanPhone}`);
+                }
+            }
+
             // Update Excel record with client info (only if not @lid)
             if (!isLinkedId(fromJid)) {
                 excel.updatePhoneRecord(clientPhone, {
@@ -481,7 +491,13 @@ async function runFlow(incomingText, fromJid, resolvedPhone = null) {
     if (debtRegex.test(lowText)) {
         logger.info('BOT', 'Detectada pregunta sobre deuda');
         if (client) {
-            return templates.debtDetails(client);
+            // Update session to enter debt sub-menu
+            await redis.setSession(fromJid, {
+                ...session,
+                client,
+                subMenu: 'debt'
+            });
+            return templates.debtDetailsMenu();
         }
         return templates.askForDocument();
     }

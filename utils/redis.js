@@ -265,6 +265,41 @@ function getStatus() {
     };
 }
 
+/**
+ * Persistent LID to Phone mapping (30 days TTL)
+ * @param {string} lid - Linked ID JID
+ * @param {string} phone - Real phone number
+ */
+async function setLidMapping(lid, phone) {
+    if (useMemoryFallback) {
+        memoryCache.set(`lid:${lid}`, phone);
+        return true;
+    }
+    if (!redis || !isConnected) await connect();
+    try {
+        await redis.setex(`lid:${lid}`, 30 * 24 * 60 * 60, phone);
+        return true;
+    } catch (err) {
+        memoryCache.set(`lid:${lid}`, phone);
+        return true;
+    }
+}
+
+/**
+ * Get phone number for a LID
+ * @param {string} lid - Linked ID JID
+ * @returns {string|null} Phone number or null
+ */
+async function getLidMapping(lid) {
+    if (useMemoryFallback) return memoryCache.get(`lid:${lid}`) || null;
+    if (!redis || !isConnected) await connect();
+    try {
+        return await redis.get(`lid:${lid}`);
+    } catch (err) {
+        return memoryCache.get(`lid:${lid}`) || null;
+    }
+}
+
 module.exports = {
     connect,
     getSession,
@@ -273,5 +308,7 @@ module.exports = {
     extendSession,
     isRedisConnected,
     getStatus,
-    setOnSessionExpired
+    setOnSessionExpired,
+    setLidMapping,
+    getLidMapping
 };

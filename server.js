@@ -35,60 +35,52 @@ const contactPhoneCache = new Map();
 const activeChats = new Map();
 
 /**
- * Resolve phone number from JID
- * For @lid JIDs, looks up in contact cache
- * For @s.whatsapp.net JIDs, extracts directly
+ * Resolve phone number from JID (Async version)
+ * Checks memory cache AND persistent Redis mapping
  */
-function resolvePhoneNumber(jid) {
-    // Check if we have cached phone for this LID
-    if (contactPhoneCache.has(jid)) {
-        return contactPhoneCache.get(jid);
+async function resolvePhoneNumberAsync(jid) {
+    // 1. Memory cache
+    if (contactPhoneCache.has(jid)) return contactPhoneCache.get(jid);
+
+    // 2. Redis persistent mapping
+    const mapped = await redis.getLidMapping(jid);
+    if (mapped) {
+        contactPhoneCache.set(jid, mapped);
+        return mapped;
     }
 
-    // Try to decode the JID
+    // 3. Fallback to direct extraction
+    return resolvePhoneNumber(jid);
+}
+
+/**
+ * Resolve phone number from JID (Sync version)
+ * For @lid JIDs, looks up in memory cache only
+ */
+function resolvePhoneNumber(jid) {
+    if (contactPhoneCache.has(jid)) return contactPhoneCache.get(jid);
+
     try {
         const decoded = jidDecode(jid);
         if (decoded) {
             const { user, server } = decoded;
-
-            // If it's a LID, the user part is NOT the phone number
-            if (server === 'lid') {
-                logger.debug('BOT', `JID es LID, no se puede resolver número directamente: ${jid}`);
-                // Return the LID user for display, but mark it
-                return `LID:${user}`;
-            }
-
-            // For s.whatsapp.net, user is the phone number
+            if (server === 'lid') return `LID:${user}`;
             if (server === 's.whatsapp.net') {
-                // Remove country code 51 for Peru if present
-                if (user.startsWith('51') && user.length === 11) {
-                    return user.substring(2);
-                }
-                // Try to get last 9 digits if it's a Peru mobile
+                if (user.startsWith('51') && user.length === 11) return user.substring(2);
                 if (user.length > 9) {
                     const last9 = user.slice(-9);
-                    if (last9.startsWith('9')) {
-                        return last9;
-                    }
+                    if (last9.startsWith('9')) return last9;
                 }
                 return user;
             }
         }
-    } catch (e) {
-        logger.debug('BOT', `Error decoding JID: ${e.message}`);
-    }
+    } catch (e) { }
 
-    // Fallback: split by @
     const raw = jid.split('@')[0];
-
-    // For Peru, try last 9 digits
     if (raw.length > 9) {
         const last9 = raw.slice(-9);
-        if (last9.startsWith('9')) {
-            return last9;
-        }
+        if (last9.startsWith('9')) return last9;
     }
-
     return raw;
 }
 
@@ -247,11 +239,13 @@ async function startWhatsApp() {
                 // contact.notify might contain phone number info
                 logger.debug('WHATSAPP', `Contacto actualizado: ${contact.id} -> ${contact.notify}`);
             }
-            // If we receive a mapping, cache it
+            // If we receive a mapping, cache it in memory AND Redis
             if (contact.lid && contact.id && !contact.id.endsWith('@lid')) {
                 const phone = contact.id.split('@')[0];
-                contactPhoneCache.set(contact.lid, phone);
-                logger.debug('WHATSAPP', `Cached LID mapping: ${contact.lid} -> ${phone}`);
+                const normalized = (phone.startsWith('51') && phone.length === 11) ? phone.substring(2) : phone;
+                contactPhoneCache.set(contact.lid, normalized);
+                redis.setLidMapping(contact.lid, normalized); // background
+                logger.debug('WHATSAPP', `Capturada resolución LID: ${contact.lid} -> ${normalized}`);
             }
         }
     });
@@ -262,8 +256,10 @@ async function startWhatsApp() {
             for (const contact of contacts) {
                 if (contact.id && !contact.id.endsWith('@lid') && contact.lid) {
                     const phone = contact.id.split('@')[0];
-                    contactPhoneCache.set(contact.lid, phone);
-                    logger.debug('WHATSAPP', `History LID mapping: ${contact.lid} -> ${phone}`);
+                    const normalized = (phone.startsWith('51') && phone.length === 11) ? phone.substring(2) : phone;
+                    contactPhoneCache.set(contact.lid, normalized);
+                    redis.setLidMapping(contact.lid, normalized); // background
+                    logger.debug('WHATSAPP', `History LID mapping: ${contact.lid} -> ${normalized}`);
                 }
             }
         }
@@ -297,7 +293,7 @@ async function startWhatsApp() {
                 const startTime = Date.now();
 
                 // Resolve real phone number if possible (especially for @lid)
-                const resolvedPhone = resolvePhoneNumber(from);
+                const resolvedPhone = await resolvePhoneNumberAsync(from);
 
                 // Add timeout wrapper to prevent hanging
                 const timeoutPromise = new Promise((_, reject) =>
