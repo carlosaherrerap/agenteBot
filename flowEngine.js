@@ -88,50 +88,47 @@ function isLinkedId(jid) {
 
 /**
  * Validate input and determine type
+ * When bot asks for DNI/cuenta, client can provide:
+ * - 8 digits = DNI (search in DOCUMENTO field)
+ * - 11 digits = RUC (search in DOCUMENTO field)  
+ * - 18 digits = Cuenta (search in CUENTA_CREDITO field)
  * @param {string} input - User input
- * @returns {object} { type: 'phone'|'account'|'dni'|'ruc'|'invalid'|'text', value, error }
+ * @returns {object} { type: 'account'|'dni'|'ruc'|'invalid'|'text', value, error }
  */
 function validateInput(input) {
     const cleaned = input.replace(/\D/g, ''); // Remove non-digits
 
-    // DNI: 8 digits
+    // If no digits, treat as text
+    if (cleaned.length === 0) {
+        return { type: 'text', value: input, error: null };
+    }
+
+    // DNI: exactly 8 digits
     if (cleaned.length === 8) {
         logger.info('BOT', `Detectado DNI: ${cleaned}`);
         return { type: 'dni', value: cleaned, error: null };
     }
 
-    // Phone: 9 digits starting with 9
-    if (cleaned.length === 9 && cleaned.startsWith('9')) {
-        logger.info('BOT', `Detectado teléfono: ${cleaned}`);
-        return { type: 'phone', value: cleaned, error: null };
+    // RUC: exactly 11 digits (should start with 10 or 20)
+    if (cleaned.length === 11) {
+        if (cleaned.startsWith('10') || cleaned.startsWith('20')) {
+            logger.info('BOT', `Detectado RUC: ${cleaned}`);
+            return { type: 'ruc', value: cleaned, error: null };
+        } else {
+            logger.warn('BOT', `RUC con formato inválido: ${cleaned}`);
+            return { type: 'invalid', value: cleaned, error: templates.invalidRucFormat() };
+        }
     }
 
-    // RUC: 11 digits (starts with 10 or 20)
-    if (cleaned.length === 11 && (cleaned.startsWith('10') || cleaned.startsWith('20'))) {
-        logger.info('BOT', `Detectado RUC: ${cleaned}`);
-        return { type: 'ruc', value: cleaned, error: null };
-    }
-
-    // Account: 18 digits
+    // Account: exactly 18 digits
     if (cleaned.length === 18) {
         logger.info('BOT', `Detectada cuenta: ${cleaned}`);
         return { type: 'account', value: cleaned, error: null };
     }
 
-    // Invalid number lengths
-    if (cleaned.length > 0 && cleaned.length < 8) {
-        return { type: 'invalid', value: cleaned, error: templates.invalidDocumentLength() };
-    }
-
-    if (cleaned.length > 11 && cleaned.length < 18) {
-        return { type: 'invalid', value: cleaned, error: templates.invalidAccountLength() };
-    }
-
-    if (cleaned.length > 18) {
-        return { type: 'invalid', value: cleaned, error: templates.invalidAccountLength() };
-    }
-
-    return { type: 'text', value: input, error: null };
+    // Any other number of digits is invalid
+    logger.warn('BOT', `Longitud de número inválida: ${cleaned.length} dígitos`);
+    return { type: 'invalid', value: cleaned, error: templates.invalidDocumentLength() };
 }
 
 /**
@@ -210,10 +207,6 @@ async function runFlow(incomingText, fromJid) {
             } else {
                 logger.warn('SQL', `❌ No se encontró cliente con documento: ${validation.value}`);
             }
-        } else if (validation.type === 'phone') {
-            // Search by phone
-            logger.info('SQL', `🔍 Buscando por TELÉFONO: ${validation.value}`);
-            client = await sql.findByPhone(validation.value);
         } else if (validation.type === 'account') {
             // Search by account
             logger.info('SQL', `🔍 Buscando por CUENTA: ${validation.value}`);
@@ -246,16 +239,6 @@ async function runFlow(incomingText, fromJid) {
         } else {
             // Not found
             logger.warn('BOT', `❌ No se encontró cliente con ${validation.type}: ${validation.value}`);
-
-            if (validation.type === 'phone' && !isLinkedId(fromJid)) {
-                // Save new phone and ask for account
-                excel.appendNewPhone({
-                    CUENTA_CREDITO: '',
-                    NOMBRE_CLIENTE: '',
-                    telefono_nuevo: validation.value
-                });
-                return templates.askForAccount();
-            }
 
             if (validation.type === 'dni' || validation.type === 'ruc') {
                 // Document not found - ask for account as alternative

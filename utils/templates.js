@@ -87,6 +87,15 @@ Por favor, verifica bien y vuelve a intentar.`;
     },
 
     /**
+     * Invalid RUC format (11 digits but wrong prefix)
+     */
+    invalidRucFormat() {
+        return `El RUC ingresado no tiene el formato correcto ❌
+El RUC debe empezar con *10* (persona natural) o *20* (empresa).
+Ejemplo: *10123456789* o *20123456789*`;
+    },
+
+    /**
      * Phone/account not found - no debt
      */
     noDebtFound() {

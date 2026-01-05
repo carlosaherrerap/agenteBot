@@ -48,8 +48,8 @@ const config = {
 
 let pool = null;
 
-// Estado filter from environment
-const ESTADO_FILTRO = parseInt(process.env.ESTADO_FILTRO) || 1;
+// Estado filter from environment (defaults to 0 if not set, handles 0 correctly)
+const ESTADO_FILTRO = process.env.ESTADO_FILTRO !== undefined ? parseInt(process.env.ESTADO_FILTRO) : 0;
 
 // Phone fields to search in
 const PHONE_FIELDS = [
