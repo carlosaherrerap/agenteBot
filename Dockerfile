@@ -1,21 +1,21 @@
+# Dockerfile para desarrollo local SIN SQL Server nativo
+# Para producción en Windows, ejecutar directamente con npm start
+
 FROM node:20-alpine
 
-# Install build dependencies for some npm packages if needed
-RUN apk add --no-cache python3 make g++
+# No se puede usar msnodesqlv8 en Alpine Linux (requiere ODBC)
+# Este Dockerfile es solo para Redis y testing
 
 WORKDIR /app
 
+# Solo copiar package.json sin msnodesqlv8
 COPY package*.json ./
 
-RUN npm install
+# Instalar dependencias (ignorar errores de msnodesqlv8)
+RUN npm install --ignore-scripts || true
 
 COPY . .
 
-# Make entrypoint executable
-RUN chmod +x docker-entrypoint.sh
+EXPOSE 3000
 
-# Expose the configured port
-EXPOSE 3008
-
-# Use custom entrypoint that cleans auth folder
-ENTRYPOINT ["./docker-entrypoint.sh"]
+CMD ["node", "server.js"]

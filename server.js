@@ -4,7 +4,14 @@
  */
 require('dotenv').config();
 const express = require('express');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason,
+    fetchLatestBaileysVersion,
+    jidDecode,
+    isLidUser
+} = require('@whiskeysockets/baileys');
 const path = require('path');
 const fs = require('fs');
 const { runFlow, isBotPaused, toggleBotPause } = require('./flowEngine');
@@ -21,12 +28,73 @@ let server = null;
 let whatsappConnected = false;
 let connectionState = 'disconnected'; // disconnected, connecting, connected
 
+// Contact cache: LID -> phone number mapping
+const contactPhoneCache = new Map();
+
 // ==================== CHAT STORAGE ====================
 const activeChats = new Map();
 
+/**
+ * Resolve phone number from JID
+ * For @lid JIDs, looks up in contact cache
+ * For @s.whatsapp.net JIDs, extracts directly
+ */
+function resolvePhoneNumber(jid) {
+    // Check if we have cached phone for this LID
+    if (contactPhoneCache.has(jid)) {
+        return contactPhoneCache.get(jid);
+    }
+
+    // Try to decode the JID
+    try {
+        const decoded = jidDecode(jid);
+        if (decoded) {
+            const { user, server } = decoded;
+
+            // If it's a LID, the user part is NOT the phone number
+            if (server === 'lid') {
+                logger.debug('BOT', `JID es LID, no se puede resolver número directamente: ${jid}`);
+                // Return the LID user for display, but mark it
+                return `LID:${user}`;
+            }
+
+            // For s.whatsapp.net, user is the phone number
+            if (server === 's.whatsapp.net') {
+                // Remove country code 51 for Peru if present
+                if (user.startsWith('51') && user.length === 11) {
+                    return user.substring(2);
+                }
+                // Try to get last 9 digits if it's a Peru mobile
+                if (user.length > 9) {
+                    const last9 = user.slice(-9);
+                    if (last9.startsWith('9')) {
+                        return last9;
+                    }
+                }
+                return user;
+            }
+        }
+    } catch (e) {
+        logger.debug('BOT', `Error decoding JID: ${e.message}`);
+    }
+
+    // Fallback: split by @
+    const raw = jid.split('@')[0];
+
+    // For Peru, try last 9 digits
+    if (raw.length > 9) {
+        const last9 = raw.slice(-9);
+        if (last9.startsWith('9')) {
+            return last9;
+        }
+    }
+
+    return raw;
+}
+
 function getChat(jid) {
     if (!activeChats.has(jid)) {
-        const phoneNumber = jid.split('@')[0];
+        const phoneNumber = resolvePhoneNumber(jid);
         activeChats.set(jid, {
             messages: [],
             lastActivity: Date.now(),
@@ -149,6 +217,41 @@ async function startWhatsApp() {
             connectionState = 'connected';
             whatsappConnected = true;
             logger.success('WHATSAPP', 'Conexión establecida correctamente');
+
+            // Get connected phone number
+            if (sock.user) {
+                const myPhone = sock.user.id.split(':')[0];
+                logger.info('WHATSAPP', `Conectado como: ${myPhone}`);
+            }
+        }
+    });
+
+    // Cache contacts for LID -> phone resolution
+    sock.ev.on('contacts.update', (updates) => {
+        for (const contact of updates) {
+            if (contact.id && contact.notify) {
+                // contact.notify might contain phone number info
+                logger.debug('WHATSAPP', `Contacto actualizado: ${contact.id} -> ${contact.notify}`);
+            }
+            // If we receive a mapping, cache it
+            if (contact.lid && contact.id && !contact.id.endsWith('@lid')) {
+                const phone = contact.id.split('@')[0];
+                contactPhoneCache.set(contact.lid, phone);
+                logger.debug('WHATSAPP', `Cached LID mapping: ${contact.lid} -> ${phone}`);
+            }
+        }
+    });
+
+    // Handle participant list updates for groups (helps with LID resolution)
+    sock.ev.on('messaging-history.set', ({ contacts }) => {
+        if (contacts) {
+            for (const contact of contacts) {
+                if (contact.id && !contact.id.endsWith('@lid') && contact.lid) {
+                    const phone = contact.id.split('@')[0];
+                    contactPhoneCache.set(contact.lid, phone);
+                    logger.debug('WHATSAPP', `History LID mapping: ${contact.lid} -> ${phone}`);
+                }
+            }
         }
     });
 

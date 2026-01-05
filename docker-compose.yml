@@ -1,49 +1,38 @@
+version: '3.8'
+
+# NOTA: El bot con SQL Server debe ejecutarse FUERA de Docker
+# debido a que msnodesqlv8 requiere drivers ODBC de Windows.
+# Este docker-compose es solo para Redis.
+
 services:
-  # Redis Cache
+  # Redis for session caching
   redis:
     image: redis:7-alpine
-    container_name: chatbot_redis
+    container_name: informaperu-redis
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
-    restart: unless-stopped
-    networks:
-      - chatbot_network
+      - redis-data:/data
+    command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 3
-
-  # WhatsApp ChatBot
-  bot:
-    build: .
-    container_name: chatbot_bot
-    ports:
-      - "${PORT:-3000}:${PORT:-3000}"
-    env_file:
-      - .env
-    environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - OLLAMA_URL=http://host.docker.internal:11434/api/chat
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - ./auth:/app/auth
-      - ./public:/app/public
-      - ./data_nueva_telf.xlsx:/app/data_nueva_telf.xlsx
+      retries: 5
     restart: unless-stopped
-    networks:
-      - chatbot_network
-    depends_on:
-      redis:
-        condition: service_healthy
 
 volumes:
-  redis_data:
+  redis-data:
 
-networks:
-  chatbot_network:
-    driver: bridge
+# ===========================================
+# INSTRUCCIONES DE USO:
+# ===========================================
+# 1. Iniciar solo Redis:
+#    docker-compose up -d redis
+#
+# 2. Ejecutar el bot en Windows:
+#    npm start
+#
+# 3. Para detener Redis:
+#    docker-compose down
+# ===========================================
