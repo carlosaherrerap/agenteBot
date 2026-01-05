@@ -78,26 +78,52 @@ function isGroup(jid) {
 }
 
 /**
+ * Check if JID is a Linked ID (not a phone number)
+ * @param {string} jid - WhatsApp JID
+ * @returns {boolean} True if LID format
+ */
+function isLinkedId(jid) {
+    return jid.endsWith('@lid');
+}
+
+/**
  * Validate input and determine type
  * @param {string} input - User input
- * @returns {object} { type: 'phone'|'account'|'invalid'|'text', value, error }
+ * @returns {object} { type: 'phone'|'account'|'dni'|'ruc'|'invalid'|'text', value, error }
  */
 function validateInput(input) {
     const cleaned = input.replace(/\D/g, ''); // Remove non-digits
 
-    if (cleaned.length === 9) {
+    // DNI: 8 digits
+    if (cleaned.length === 8) {
+        logger.info('BOT', `Detectado DNI: ${cleaned}`);
+        return { type: 'dni', value: cleaned, error: null };
+    }
+
+    // Phone: 9 digits starting with 9
+    if (cleaned.length === 9 && cleaned.startsWith('9')) {
+        logger.info('BOT', `Detectado teléfono: ${cleaned}`);
         return { type: 'phone', value: cleaned, error: null };
     }
 
+    // RUC: 11 digits (starts with 10 or 20)
+    if (cleaned.length === 11 && (cleaned.startsWith('10') || cleaned.startsWith('20'))) {
+        logger.info('BOT', `Detectado RUC: ${cleaned}`);
+        return { type: 'ruc', value: cleaned, error: null };
+    }
+
+    // Account: 18 digits
     if (cleaned.length === 18) {
+        logger.info('BOT', `Detectada cuenta: ${cleaned}`);
         return { type: 'account', value: cleaned, error: null };
     }
 
-    if (cleaned.length > 0 && cleaned.length < 9) {
-        return { type: 'invalid', value: cleaned, error: templates.invalidPhoneLength() };
+    // Invalid number lengths
+    if (cleaned.length > 0 && cleaned.length < 8) {
+        return { type: 'invalid', value: cleaned, error: templates.invalidDocumentLength() };
     }
 
-    if (cleaned.length > 9 && cleaned.length < 18) {
+    if (cleaned.length > 11 && cleaned.length < 18) {
         return { type: 'invalid', value: cleaned, error: templates.invalidAccountLength() };
     }
 
@@ -139,22 +165,42 @@ async function runFlow(incomingText, fromJid) {
 
     // Extract phone from JID
     const clientPhone = extractPhone(fromJid);
+    const isLid = isLinkedId(fromJid); // Check if it's a Linked ID (not a real phone number)
 
     // Log incoming message
     logger.info('BOT', `📩 Mensaje de ${clientPhone}: "${text}"`);
+    if (isLid) {
+        logger.warn('BOT', `⚠️ JID es Linked ID (@lid), no es número de teléfono real`);
+    }
 
     // ========== 2. CHECK REDIS CACHE ==========
     let session = await redis.getSession(fromJid);
     let client = session?.client || null;
 
     if (session) {
-        logger.debug('REDIS', `Sesión activa encontrada para ${clientPhone}`);
+        logger.debug('REDIS', `Sesión activa encontrada para ${fromJid}`);
         // Extend session on activity
         await redis.extendSession(fromJid);
     }
 
-    // ========== 3. FIRST CONTACT - SEARCH BY PHONE ==========
+    // ========== 3. FIRST CONTACT ==========
     if (!client) {
+        // If it's a Linked ID, we can't search by phone - go straight to asking for document
+        if (isLid) {
+            logger.info('BOT', 'Cliente con Linked ID - pidiendo DNI/RUC/Cuenta');
+
+            // Save partial session
+            await redis.setSession(fromJid, {
+                client: null,
+                identified: false,
+                waitingFor: 'document',
+                isLid: true
+            });
+
+            return templates.greetingNeutral();
+        }
+
+        // For normal phone JIDs, search by phone
         logger.phone(clientPhone, false);
 
         // Search phone in database
@@ -193,18 +239,30 @@ async function runFlow(incomingText, fromJid) {
 
     // ========== 4. IF WAITING FOR DOCUMENT/ACCOUNT ==========
     if (session && !session.identified && session.waitingFor === 'document') {
+        logger.info('BOT', 'Paso 4: Cliente esperando identificación...');
         const validation = validateInput(text);
 
         if (validation.type === 'invalid') {
             return validation.error;
         }
 
-        if (validation.type === 'phone') {
+        // Search based on input type
+        if (validation.type === 'dni' || validation.type === 'ruc') {
+            // Search by document (DNI or RUC)
+            logger.info('BOT', `Buscando por documento: ${validation.value}`);
+            client = await sql.findByDocument(validation.value);
+        } else if (validation.type === 'phone') {
             // Search by phone
+            logger.info('BOT', `Buscando por teléfono: ${validation.value}`);
             client = await sql.findByPhone(validation.value);
         } else if (validation.type === 'account') {
             // Search by account
+            logger.info('BOT', `Buscando por cuenta: ${validation.value}`);
             client = await sql.findByAccount(validation.value);
+        } else {
+            // Text input - might be trying to chat, ask again for identification
+            logger.debug('BOT', 'Input no es número, pidiendo identificación de nuevo');
+            return templates.askForDocument();
         }
 
         if (client) {
@@ -215,17 +273,21 @@ async function runFlow(incomingText, fromJid) {
                 identifiedBy: validation.type
             });
 
-            // Update Excel record with client info
-            excel.updatePhoneRecord(clientPhone, {
-                CUENTA_CREDITO: client.CUENTA_CREDITO || '',
-                NOMBRE_CLIENTE: client.NOMBRE_CLIENTE || ''
-            });
+            // Update Excel record with client info (only if not @lid)
+            if (!isLinkedId(fromJid)) {
+                excel.updatePhoneRecord(clientPhone, {
+                    CUENTA_CREDITO: client.CUENTA_CREDITO || '',
+                    NOMBRE_CLIENTE: client.NOMBRE_CLIENTE || ''
+                });
+            }
 
             logger.success('BOT', `Cliente identificado por ${validation.type}: ${client.NOMBRE_CLIENTE}`);
             return templates.menuOptions(getFirstName(client.NOMBRE_CLIENTE));
         } else {
-            // Still not found
-            if (validation.type === 'phone') {
+            // Not found
+            logger.warn('BOT', `No se encontró cliente con ${validation.type}: ${validation.value}`);
+
+            if (validation.type === 'phone' && !isLinkedId(fromJid)) {
                 // Save new phone and ask for account
                 excel.appendNewPhone({
                     CUENTA_CREDITO: '',
@@ -234,6 +296,12 @@ async function runFlow(incomingText, fromJid) {
                 });
                 return templates.askForAccount();
             }
+
+            if (validation.type === 'dni' || validation.type === 'ruc') {
+                // Document not found - ask for account as alternative
+                return templates.clientNotFound();
+            }
+
             // Account not found = no debt
             return templates.noDebtFound();
         }

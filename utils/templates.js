@@ -67,6 +67,17 @@ Ejemplo: *9XX-XXX-XXX*`;
     },
 
     /**
+     * Invalid document length error (DNI should be 8, RUC should be 11)
+     */
+    invalidDocumentLength() {
+        return `El número brindado es incorrecto ❌
+Por favor ingresa:
+• *DNI*: 8 dígitos (Ej: 12345678)
+• *RUC*: 11 dígitos (Ej: 20123456789)
+• *N° Cuenta*: 18 dígitos`;
+    },
+
+    /**
      * Invalid account length error
      */
     invalidAccountLength() {
