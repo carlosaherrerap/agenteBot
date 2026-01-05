@@ -49,7 +49,7 @@ const templates = {
     debtDetailsMenu() {
         return [
             `📋 *Consulta de Deuda*\nSelecciona qué información deseas ver:`,
-            `1️⃣ Saldo Capital\n2️⃣ Cuota Pendiente\n3️⃣ Días de Atraso\n4️⃣ Regresar al menú anterior`
+            `1️⃣ Saldo Capital\n2️⃣ Cuota Pendiente\n3️⃣ Días de Atraso\n\nEscribe *0* para regresar al menú principal 🔙`
         ];
     },
 
@@ -57,15 +57,24 @@ const templates = {
      * Individual debt detail responses
      */
     debtSaldoCapital(amount) {
-        return `💰 Tu Saldo Capital es: *S/ ${amount}*`;
+        return [
+            `💰 Tu Saldo Capital es: *S/ ${amount}*`,
+            `Escribe *0* para volver al menú principal 🔙`
+        ];
     },
 
     debtCuotaPendiente(amount) {
-        return `📅 Tu Cuota Pendiente es: *S/ ${amount}*`;
+        return [
+            `📅 Tu Cuota Pendiente es: *S/ ${amount}*`,
+            `Escribe *0* para volver al menú principal 🔙`
+        ];
     },
 
     debtDiasAtraso(days) {
-        return `⏰ Tienes *${days} días* de atraso.`;
+        return [
+            `⏰ Tienes *${days} días* de atraso.`,
+            `Escribe *0* para volver al menú principal 🔙`
+        ];
     },
 
     /**
@@ -139,7 +148,8 @@ const templates = {
             `📍 *Oficinas Caja Huancayo*`,
             `🏢 *Lima - San Isidro*\n   Av. Javier Prado Este 123\n   Lun-Vie 9:00am - 6:00pm\n\n🏢 *Lima - Miraflores*\n   Av. Larco 456\n   Lun-Vie 9:00am - 6:00pm`,
             `🏢 *Huancayo - Centro*\n   Jr. Real 789, Plaza Constitución\n   Lun-Sab 8:00am - 6:00pm\n\n🏢 *Huancayo - El Tambo*\n   Av. Huancavelica 321\n   Lun-Sab 8:00am - 6:00pm`,
-            `🏢 *Junín - Tarma*\n   Jr. Lima 555\n   Lun-Vie 9:00am - 5:00pm\n\n📞 Central: 01-XXX-XXXX`
+            `🏢 *Junín - Tarma*\n   Jr. Lima 555\n   Lun-Vie 9:00am - 5:00pm\n\n📞 Central: 01-XXX-XXXX`,
+            `Escribe *0* para volver al menú principal 🔙`
         ];
     },
 
@@ -147,21 +157,30 @@ const templates = {
      * Update phone - service not available
      */
     updatePhoneRequest() {
-        return `⚠️ Servicio aún no disponible.\nPor favor, acércate a una de nuestras oficinas para actualizar tu número de teléfono.`;
+        return [
+            `⚠️ Servicio aún no disponible.\nPor favor, acércate a una de nuestras oficinas para actualizar tu número de teléfono.`,
+            `Escribe *0* para volver al menú principal 🔙`
+        ];
     },
 
     /**
      * Advisor transfer - requires DNI + query FIRST
      */
     advisorRequest() {
-        return `Para derivarte con un asesor, necesito tu *DNI* y tu *consulta* en un solo mensaje.\n\nEjemplo: *"DNI 12345678, quiero reprogramar mi deuda"*`;
+        return [
+            `Para derivarte con un asesor, necesito tu *DNI* y tu *consulta* en un solo mensaje.`,
+            `Ejemplo: *"75747335, quiero reprogramar mi deuda"*\n\nEscribe *0* para volver al menú principal 🔙`
+        ];
     },
 
     /**
      * Advisor confirmation after sending email
      */
     advisorTransferConfirm() {
-        return `Listo ✅\nSe te está derivando con un asesor personalizado.\nTe contactaremos pronto. 📞`;
+        return [
+            `Listo ✅\nSe te está derivando con un asesor personalizado.\nTe contactaremos pronto. 📞`,
+            `Escribe *0* para volver al menú principal 🔙`
+        ];
     },
 
     /**

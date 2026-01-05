@@ -312,6 +312,18 @@ async function runFlow(incomingText, fromJid) {
         }
     }
 
+    // ========== 5. GLOBAL RETURN TO MENU (Option 0) ==========
+    if (text === '0' && client) {
+        logger.info('BOT', 'Regresando al menú principal (opción 0)');
+        await redis.setSession(fromJid, {
+            ...session,
+            client,
+            subMenu: 'main',
+            waitingFor: null
+        });
+        return templates.menuOptions(getFirstName(client.NOMBRE_CLIENTE));
+    }
+
     // ========== 5. MAIN MENU OPTIONS (1-4) ==========
     if (/^[1-4]$/.test(text) && client && (!session?.subMenu || session?.subMenu === 'main')) {
         const option = parseInt(text);
@@ -367,11 +379,22 @@ async function runFlow(incomingText, fromJid) {
 
     // ========== 5.2 WAITING FOR ADVISOR REQUEST (DNI + consulta) ==========
     if (session?.waitingFor === 'advisor_request') {
-        // Check if message contains DNI pattern and query
-        const dniMatch = text.match(/(?:dni|documento)\s*[:\-]?\s*(\d{8})/i);
+        // Check if message contains 8-digit DNI (with or without "DNI" prefix)
+        // Pattern: Optional "DNI" word, then 8 digits
+        const dniWithPrefixMatch = text.match(/(?:dni|documento)\s*[:\-]?\s*(\d{8})/i);
+        const dniWithoutPrefixMatch = text.match(/^\s*(\d{8})(?:\b|[\s,])/);
+
+        const dniMatch = dniWithPrefixMatch || dniWithoutPrefixMatch;
+
         if (dniMatch) {
             const dni = dniMatch[1];
-            const query = text.replace(/(?:dni|documento)\s*[:\-]?\s*\d{8},?\s*/i, '').trim() || 'Solicitud de contacto';
+            // Extract query: remove DNI prefix and number
+            let query = text
+                .replace(/(?:dni|documento)\s*[:\-]?\s*\d{8}[,\s]*/i, '')
+                .replace(/^\d{8}[,\s]*/, '')
+                .trim();
+
+            if (!query) query = 'Solicitud de contacto';
 
             logger.info('BOT', `Solicitud de asesor - DNI: ${dni}, Consulta: ${query}`);
 
@@ -386,7 +409,7 @@ async function runFlow(incomingText, fromJid) {
 
             return templates.advisorTransferConfirm();
         } else {
-            // No DNI found, ask again
+            // No 8-digit DNI found, ask again
             return templates.advisorRequest();
         }
     }
