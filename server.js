@@ -296,13 +296,16 @@ async function startWhatsApp() {
 
                 const startTime = Date.now();
 
+                // Resolve real phone number if possible (especially for @lid)
+                const resolvedPhone = resolvePhoneNumber(from);
+
                 // Add timeout wrapper to prevent hanging
                 const timeoutPromise = new Promise((_, reject) =>
                     setTimeout(() => reject(new Error('TIMEOUT: Flow tardó más de 30 segundos')), 30000)
                 );
 
                 const response = await Promise.race([
-                    runFlow(text, from),
+                    runFlow(text, from, resolvedPhone),
                     timeoutPromise
                 ]);
 

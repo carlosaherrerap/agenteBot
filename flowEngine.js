@@ -109,6 +109,12 @@ function validateInput(input) {
         return { type: 'dni', value: cleaned, error: null };
     }
 
+    // Phone: exactly 9 digits
+    if (cleaned.length === 9) {
+        logger.info('BOT', `Detectado teléfono: ${cleaned}`);
+        return { type: 'phone', value: cleaned, error: null };
+    }
+
     // RUC: exactly 11 digits (should start with 10 or 20)
     if (cleaned.length === 11) {
         if (cleaned.startsWith('10') || cleaned.startsWith('20')) {
@@ -148,9 +154,10 @@ function getFirstName(fullName) {
  * Process incoming message
  * @param {string} incomingText - Message text
  * @param {string} fromJid - WhatsApp JID
+ * @param {string} resolvedPhone - Resolved phone number (if available)
  * @returns {string|null} Response or null
  */
-async function runFlow(incomingText, fromJid) {
+async function runFlow(incomingText, fromJid, resolvedPhone = null) {
     const text = incomingText.trim();
     const lowText = text.toLowerCase();
 
@@ -160,14 +167,22 @@ async function runFlow(incomingText, fromJid) {
         return null;
     }
 
-    // Extract phone from JID
-    const clientPhone = extractPhone(fromJid);
-    const isLid = isLinkedId(fromJid); // Check if it's a Linked ID (not a real phone number)
+    // Extract phone info
+    // Use resolvedPhone if provided and not starting with LID:, otherwise try to extract from JID
+    let clientPhone = resolvedPhone || extractPhone(fromJid);
+    const isLid = isLinkedId(fromJid) && (!clientPhone || clientPhone.startsWith('LID:'));
 
-    // Log incoming message
-    logger.info('BOT', `📩 Mensaje de ${clientPhone}: "${text}"`);
+    // If it's still a LID string, we don't have the real phone
+    const hasRealPhone = !isLid && clientPhone && !clientPhone.startsWith('LID:');
+
+    // Log incoming message with special format
+    logger.info('BOT', `────────────────────────────────────────`);
+    logger.info('BOT', `-> TELEFONO_CLIENTE: ${hasRealPhone ? clientPhone : 'DESCONOCIDO (LID)'}`);
+
     if (isLid) {
-        logger.warn('BOT', `⚠️ JID es Linked ID (@lid), no es número de teléfono real`);
+        logger.warn('BOT', `⚠️  JID: ${fromJid} (Linked ID sin número real resuelto aún)`);
+    } else {
+        logger.info('BOT', `🔍 JID real: ${fromJid}`);
     }
 
     // ========== 2. CHECK REDIS CACHE ==========
@@ -207,6 +222,10 @@ async function runFlow(incomingText, fromJid) {
             } else {
                 logger.warn('SQL', `❌ No se encontró cliente con documento: ${validation.value}`);
             }
+        } else if (validation.type === 'phone') {
+            // Search by phone provided in text
+            logger.info('SQL', `🔍 Buscando por TELÉFONO (texto): ${validation.value}`);
+            client = await sql.findByPhone(validation.value);
         } else if (validation.type === 'account') {
             // Search by account
             logger.info('SQL', `🔍 Buscando por CUENTA: ${validation.value}`);
@@ -240,8 +259,20 @@ async function runFlow(incomingText, fromJid) {
             // Not found
             logger.warn('BOT', `❌ No se encontró cliente con ${validation.type}: ${validation.value}`);
 
-            if (validation.type === 'dni' || validation.type === 'ruc') {
-                // Document not found - ask for account as alternative
+            if (validation.type === 'dni' || validation.type === 'ruc' || validation.type === 'phone') {
+                if (validation.type === 'phone') {
+                    // It was a phone typed as text but not found in DB
+                    // Log to Excel as a new phone
+                    excel.appendNewPhone({
+                        CUENTA_CREDITO: '',
+                        NOMBRE_CLIENTE: '',
+                        telefono_nuevo: validation.value
+                    });
+
+                    logger.phone(validation.value, false, { telefono_nuevo: validation.value });
+                }
+
+                // Document or Phone typed not found - ask for identification again
                 return templates.clientNotFound();
             }
 
@@ -256,9 +287,12 @@ async function runFlow(incomingText, fromJid) {
         logger.info('BOT', '═══════════════════════════════════════════════');
         logger.info('BOT', 'PASO 4: Primer contacto - nuevo cliente');
 
-        // If it's a Linked ID, we can't search by phone - go straight to asking for document
-        if (isLid) {
-            logger.info('BOT', 'Cliente con Linked ID - pidiendo DNI/RUC/Cuenta');
+        // If we don't have a real phone number yet (Linked ID @lid)
+        if (!hasRealPhone) {
+            logger.info('BOT', 'Cliente con Linked ID - pidiendo DNI/RUC/Cuenta para identificar');
+
+            // Log status prominently
+            logger.phone('DESCONOCIDO (LID)', false);
 
             // Save partial session
             await redis.setSession(fromJid, {
@@ -272,17 +306,14 @@ async function runFlow(incomingText, fromJid) {
             return templates.greetingNeutral();
         }
 
-        // For normal phone JIDs, search by phone
-        logger.phone(clientPhone, false);
-
-        // Search phone in database
+        // For real phone numbers, search in database
         logger.info('SQL', `🔍 Buscando teléfono en BD: ${clientPhone}`);
         client = await sql.findByPhone(clientPhone);
 
         if (client) {
-            // Found by phone - save session and greet with name
+            // Found by phone - log status prominently and greet with name
             logger.phone(clientPhone, true);
-            logger.success('BOT', `Cliente identificado: ${client.NOMBRE_CLIENTE}`);
+            logger.success('BOT', `Cliente identificado por teléfono: ${client.NOMBRE_CLIENTE}`);
 
             await redis.setSession(fromJid, {
                 client,
@@ -293,12 +324,16 @@ async function runFlow(incomingText, fromJid) {
             logger.info('BOT', '═══════════════════════════════════════════════');
             return templates.greetingWithName(client.NOMBRE_CLIENTE);
         } else {
-            // Phone not found - save to Excel and ask for ID
-            excel.appendNewPhone({
+            // Phone not found - log status prominently, save to Excel and ask for ID
+            const excelData = {
                 CUENTA_CREDITO: '',
                 NOMBRE_CLIENTE: '',
                 telefono_nuevo: clientPhone
-            });
+            };
+
+            logger.phone(clientPhone, false, excelData);
+
+            excel.appendNewPhone(excelData);
 
             // Save partial session
             await redis.setSession(fromJid, {
