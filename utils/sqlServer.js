@@ -377,6 +377,7 @@ module.exports = {
     isConnected,
     query,
     escape,
+    getPool,
     findByPhone,
     findByAccount,
     findByDocument,

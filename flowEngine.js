@@ -2,6 +2,7 @@ const { getDeepseekResponse } = require('./services/deepseek');
 const { sendAdvisorEmail } = require('./services/email');
 const { getClienteByDNI, saveConversacion } = require('./services/database');
 const sql = require('./utils/sqlServer');
+const templates = require('./utils/templates');
 const fs = require('fs');
 const path = require('path');
 
@@ -112,7 +113,9 @@ function calculateSaldoCuota(client) {
 
 function getClientName(client) {
     if (!client) return 'Cliente';
-    const fullName = client.CLIENTE_PREMIUM || client.nombre_completo || 'Cliente';
+    // Try multiple possible column names
+    const fullName = client.NOMBRE_CLIENTE || client.CLIENTE_PREMIUM || client.nombre_completo || 'Cliente';
+    // Extract first name from "APELLIDO, NOMBRE" format
     const parts = fullName.split(',');
     if (parts.length > 1) {
         return parts[1].trim().split(' ')[0];
@@ -123,41 +126,38 @@ function getClientName(client) {
 // ==================== MENU TEMPLATES ====================
 
 function getMainMenu(name) {
-    return `Hola, *${name}*. Te saludamos de *InformaPeru*\n\nSelecciona un número para realizar tu consulta:\n1️⃣ Detalles deuda\n2️⃣ Descuento\n3️⃣ Oficinas\n4️⃣ Otros`;
+    // Use templates.js for consistent messaging with full greeting format
+    const messages = templates.greetingWithName(name);
+    return messages.join('\n\n');
+}
+
+function getMenuOnly(name) {
+    // Just the menu options without full greeting (for returning to menu)
+    const messages = templates.menuOptions(name);
+    return messages.join('\n\n');
 }
 
 function getDeudaSubmenu(name) {
-    return `*Detalles de Deuda - ${name}*\n\nSelecciona qué información deseas consultar:\n\n1️⃣ Saldo total y cuotas\n2️⃣ Próxima cuota a pagar\n3️⃣ Días de atraso\n4️⃣ Último pago registrado\n\n0️⃣ Regresar al menú anterior`;
+    const messages = templates.debtDetailsMenu();
+    return messages.join('\n\n');
 }
 
 function getDeudaOption1(client) {
-    const name = getClientName(client);
-    const saldoTotal = parseFloat(client.SALDO_TOTAL || 0).toFixed(2);
-    const cuotasPagadas = client.CUOTAS_PAGADAS || 0;
-    const cuotasTotales = client.CUOTAS_TOTALES || 0;
-    const cuotasPendientes = cuotasTotales - cuotasPagadas;
-
-    return `*${name} - Saldo y Cuotas*\n\n💰 Saldo Total: S/ ${saldoTotal}\n📊 Cuotas Pagadas: ${cuotasPagadas}/${cuotasTotales}\n📋 Cuotas Pendientes: ${cuotasPendientes}\n\n0️⃣ Regresar al menú anterior`;
+    const saldoCapital = parseFloat(client.SALDO_CAPITAL || client.SALDO_CUOTA || client.SALDO_TOTAL || 0).toFixed(2);
+    const messages = templates.debtSaldoCapital(saldoCapital);
+    return messages.join('\n\n');
 }
 
 function getDeudaOption2(client) {
-    const name = getClientName(client);
-    const capital = parseFloat(client.SALDO_CAPITAL_PROXIMA_CUOTA || 0).toFixed(2);
-    const interes = parseFloat(client.SALDO_INTERES_PROXIMA_CUOTA || 0).toFixed(2);
-    const mora = parseFloat(client.SALDO_MORA_PROXIMA_CUOTA || 0).toFixed(2);
-    const gasto = parseFloat(client.SALDO_GASTO_PROXIMA_CUOTA || 0).toFixed(2);
     const totalCuota = calculateSaldoCuota(client);
-
-    return `*${name} - Próxima Cuota*\n\n📌 Capital: S/ ${capital}\n📈 Intereses: S/ ${interes}\n⚠️ Mora: S/ ${mora}\n💼 Gastos: S/ ${gasto}\n\n🧾 *Total a Pagar: S/ ${totalCuota}*\n\n0️⃣ Regresar al menú anterior`;
+    const messages = templates.debtCuotaPendiente(totalCuota);
+    return messages.join('\n\n');
 }
 
 function getDeudaOption3(client) {
-    const name = getClientName(client);
     const diasAtraso = client.DIAS_ATRASO || 0;
-    const atrasoMax = client.ATRASO_MAXIMO || 0;
-    const diasRestantes = Math.max(0, atrasoMax - diasAtraso);
-
-    return `*${name} - Días de Atraso*\n\n⏰ Días de atraso actual: ${diasAtraso}\n📅 Máximo permitido: ${atrasoMax}\n✅ Días restantes: ${diasRestantes}\n\n0️⃣ Regresar al menú anterior`;
+    const messages = templates.debtDiasAtraso(diasAtraso);
+    return messages.join('\n\n');
 }
 
 function getDeudaOption4(client) {
@@ -193,21 +193,21 @@ async function runFlow(incomingText, fromJid) {
 
     const session = getSession(fromJid);
 
+    // Get bot context/persona
+    const botContext = (process.env.BOT_CONTEXT || 'Eres Max, asistente virtual de InformaPeru para cobranzas.').replace(/\\n/g, '\n');
+    const botName = botContext.match(/(?:Eres|soy|me llamo)\s+(\w+)/i)?.[1] || 'Max';
+
     // 1. GREETING ONLY
     if (GREETING_ONLY_REGEX.test(lowText) && !session.cachedClient) {
         session.state = 'waiting_dni';
-        return 'Hola, te saluda InformaPeru. 👋 Si tienes alguna duda o consulta házmela saber adjuntando tu DNI, RUC o CUENTA (p. ejem: 12345678)';
+        const greetingMessages = templates.greetingNeutral();
+        return greetingMessages.join('\n\n');
     }
 
     // 2. DEBT INQUIRY WITHOUT IDENTIFIER
     if (DEBT_INQUIRY_REGEX.test(lowText) && !session.cachedClient && !IDENTIFIER_REGEX.test(text)) {
         session.state = 'waiting_dni';
-        const responses = [
-            'Por favor, bríndame tu DNI para verificar en el sistema. 🔍',
-            'Hola, te saluda InformaPeru. Necesito tu DNI, RUC o CUENTA.',
-            'Hola, te saluda InformaPeru, bríndame tu DNI para verificar en el sistema.'
-        ];
-        return responses[Math.floor(Math.random() * responses.length)];
+        return templates.askForDocument();
     }
 
     // 3. IDENTIFIER DETECTION
@@ -229,7 +229,7 @@ async function runFlow(incomingText, fromJid) {
             session.cachedClient = null;
             session.state = 'waiting_dni';
             session.menuLevel = 'root';
-            return 'Lo siento, no encontré información con ese número. Por favor verifica y vuelve a intentar.';
+            return templates.clientNotFound();
         }
     }
 
@@ -242,15 +242,18 @@ async function runFlow(incomingText, fromJid) {
             case 1: // Detalles deuda -> Show submenu
                 session.menuLevel = 'deuda_submenu';
                 return getDeudaSubmenu(name);
-            case 2: // Descuento
-                session.menuLevel = 'descuento';
-                return `Hola ${name}, cuento con una campaña de descuento para ti. Escríbeme "Asesor" si deseas detalles.\n\n0️⃣ Regresar al menú anterior`;
-            case 3: // Oficinas
+            case 2: // Oficinas
                 session.menuLevel = 'oficinas';
-                return `📍 *Agencias Caja Huancayo*\nTu agencia asignada es ${session.cachedClient.AGENCIA || 'la más cercana'}. Puedes acercarte a cualquier oficina a nivel nacional.\n\n0️⃣ Regresar al menú anterior`;
-            case 4: // Otros
-                session.menuLevel = 'otros';
-                return `Entiendo ${name}. Descríbeme tu consulta para derivarte con un asesor.\n\n0️⃣ Regresar al menú anterior`;
+                const officeMessages = templates.officesInfo();
+                return officeMessages.join('\n\n');
+            case 3: // Actualizar teléfono
+                session.menuLevel = 'telefono';
+                const phoneMessages = templates.updatePhoneRequest();
+                return phoneMessages.join('\n\n');
+            case 4: // Asesor
+                session.menuLevel = 'asesor_inicio';
+                const advisorMessages = templates.advisorRequest();
+                return advisorMessages.join('\n\n');
         }
     }
 
@@ -277,26 +280,37 @@ async function runFlow(incomingText, fromJid) {
 
     // 6. RETURN TO PREVIOUS LEVEL (0 from any submenu)
     if (text === '0' && session.cachedClient) {
-        if (session.menuLevel === 'descuento' || session.menuLevel === 'oficinas' || session.menuLevel === 'otros') {
+        if (['descuento', 'oficinas', 'otros', 'telefono', 'asesor_inicio', 'deuda_submenu'].includes(session.menuLevel)) {
             session.menuLevel = 'main';
-            return getMainMenu(getClientName(session.cachedClient));
-        }
-        if (session.menuLevel === 'deuda_submenu') {
-            session.menuLevel = 'main';
-            return getMainMenu(getClientName(session.cachedClient));
+            return getMenuOnly(getClientName(session.cachedClient));
         }
     }
 
     // 7. ADVISOR REQUEST
     if (ADVISOR_REGEX.test(lowText)) {
-        const dni = session.cachedClient?.NRO_DNI || session.cachedClient?.NRO_RUC || 'Sin ID';
-        await sendAdvisorEmail(dni, text);
-        return `Listo. Un asesor de *InformaPeru* te contactará pronto.\n\n${session.cachedClient ? '0️⃣ Regresar al menú anterior' : ''}`;
+        // If not identified, ask for DNI first
+        if (!session.cachedClient) {
+            session.state = 'waiting_dni';
+            return templates.askForDocument();
+        }
+
+        // If in asesor_inicio state, capture the query and send email
+        if (session.menuLevel === 'asesor_inicio') {
+            const dni = session.cachedClient.DOCUMENTO || session.cachedClient.CUENTA_CREDITO || 'Sin ID';
+            await sendAdvisorEmail(dni, text);
+            session.menuLevel = 'main';
+            const confirmMessages = templates.advisorTransferConfirm();
+            return confirmMessages.join('\n\n');
+        }
+
+        // Otherwise, show advisor request template
+        session.menuLevel = 'asesor_inicio';
+        const advisorMessages = templates.advisorRequest();
+        return advisorMessages.join('\n\n');
     }
 
     // 8. AI FALLBACK
     console.log('🤖 AI Fallback');
-    const botContext = (process.env.BOT_CONTEXT || '').replace(/\\n/g, '\n');
 
     let clientContext = '';
     if (session.cachedClient) {

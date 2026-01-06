@@ -1,28 +1,35 @@
 const sql = require('../utils/sqlServer');
 
 /**
- * Get client by DNI/RUC from HuancayoBase using raw query
+ * Get client by DNI/RUC/CUENTA from HuancayoBase
+ * Now handles any length identifier
  */
 async function getClienteByDNI(identifier) {
     try {
-        const escapedId = sql.escape(identifier);
-        const rows = await sql.rawQuery(
-            `SELECT TOP 1 * FROM [dbo].[HuancayoBase] 
-             WHERE NRO_DNI = ${escapedId} 
-             OR NRO_RUC = ${escapedId} 
-             OR CUENTA_CREDITO = ${escapedId}`
-        );
+        let cliente = null;
 
-        if (rows.length === 0) {
+        // Try different lookup strategies based on identifier length
+        if (identifier.length === 18) {
+            // Account number (CUENTA_CREDITO)
+            cliente = await sql.findByAccount(identifier);
+        } else if (identifier.length === 9) {
+            // Phone number
+            cliente = await sql.findByPhone(identifier);
+        } else {
+            // For any other length (8-digit DNI, 11-digit RUC, or any DOCUMENTO), search by DOCUMENTO
+            cliente = await sql.findByDocument(identifier);
+        }
+
+        if (!cliente) {
             return {
                 success: false,
-                mensaje: 'No encontramos información con ese número.'
+                mensaje: 'No encontramos información con ese número. 😔'
             };
         }
 
         return {
             success: true,
-            cliente: rows[0]
+            cliente: cliente
         };
 
     } catch (error) {
@@ -35,7 +42,7 @@ async function getClienteByDNI(identifier) {
 }
 
 /**
- * Save conversation to SQL Server using raw query
+ * Save conversation to SQL Server
  */
 async function saveConversacion({
     clienteId = null,
@@ -54,7 +61,8 @@ async function saveConversacion({
         const escapedIntent = intent ? sql.escape(intent) : 'NULL';
         const derivado = derivadoAsesor ? 1 : 0;
 
-        await sql.rawQuery(
+        const pool = await sql.getPool();
+        await pool.request().query(
             `INSERT INTO Conversaciones 
              (telefono_whatsapp, dni_proporcionado, mensaje_cliente, respuesta_bot, intent, derivado_asesor)
              VALUES (${escapedTel}, ${escapedDni}, ${escapedMsg}, ${escapedResp}, ${escapedIntent}, ${derivado})`
