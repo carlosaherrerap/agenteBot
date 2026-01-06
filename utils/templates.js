@@ -9,47 +9,68 @@
 
 const templates = {
     /**
-     * Greeting with customer name (found in database)
-     * Returns array for multiple messages
-     * @param {string} name - Customer name from NOMBRE_CLIENTE
-     */
-    greetingWithName(name) {
-        return [
-            `Hola, *${name}* 😊 Soy Max, tu asistente virtual 🤖\nTe saludamos de *InformaPeru*.`,
-            `Para ayudarte escribe brevemente tu consulta *"Quiero pagar mi deuda"* o selecciona una opción:`,
-            `1️⃣ Detalles deuda\n2️⃣ Oficinas cercanas\n3️⃣ Actualizar teléfono\n4️⃣ Comunicarse con un asesor`
-        ];
-    },
-
-    /**
-     * Neutral greeting (phone not found in database)
+     * First greeting - neutral (no client identified)
+     * Two separate messages as per spec
      */
     greetingNeutral() {
         return [
-            `Hola, Soy Max 😊, tu asistente virtual 🤖\nTe saludamos de *InformaPeru*.`,
+            `Hola, Soy *Max* 😊, tu asistente virtual 🤖\nTe saludamos de *InformaPeru*.`,
             `Para ayudarte con tu consulta, necesito tu *DNI* o *número de cuenta*.`
         ];
     },
 
     /**
-     * Menu options (after customer identified)
-     * @param {string} name - Optional customer name
+     * Main menu after client identified
+     * @param {string} name - Customer first name from NOMBRE_CLIENTE
      */
-    menuOptions(name = null) {
-        const greeting = name ? `${name} 😊 ` : '';
+    greetingWithName(name) {
         return [
-            `${greeting}Para continuar con la atención selecciona una opción:`,
+            `*${name.toUpperCase()}* 😊 Para continuar con la consulta selecciona un número`,
+            `1️⃣ Detalles deuda\n2️⃣ Oficinas cercanas\n3️⃣ Actualizar teléfono\n4️⃣ Comunicarse con un asesor`,
+            `_Como método de seguridad solo se puede consultar 1 documento (DNI, RUC) 🛡️\no espera 2 minutos hasta cerrar sesión para volver a consultar un documento diferente_`
+        ];
+    },
+
+    /**
+     * Menu options only (for returning to menu)
+     * @param {string} name - Customer first name
+     */
+    menuOptions(name) {
+        return [
+            `*${name.toUpperCase()}* 😊 Para continuar selecciona una opción:`,
             `1️⃣ Detalles deuda\n2️⃣ Oficinas cercanas\n3️⃣ Actualizar teléfono\n4️⃣ Comunicarse con un asesor`
         ];
     },
 
     /**
-     * Debt details sub-menu (not all info at once)
+     * Invalid number length error (not 8 or 11 digits)
+     */
+    invalidNumberLength() {
+        return `El número ingresado no es válido ❌\n\nPor favor ingresa:\n• *DNI*: 8 dígitos (Ej: 12345678)\n• *RUC*: 11 dígitos (Ej: 20123456789)`;
+    },
+
+    /**
+     * Client not found in database
+     */
+    clientNotFound() {
+        return `No se ha encontrado datos para este número. Vuelva a intentar. 🔍`;
+    },
+
+    /**
+     * Request document/ID
+     */
+    askForDocument() {
+        return `Por favor, bríndame tu *DNI* o *número de cuenta* para verificar en el sistema 🔍`;
+    },
+
+    /**
+     * Debt details sub-menu
      */
     debtDetailsMenu() {
         return [
             `📋 *Consulta de Deuda*\nSelecciona qué información deseas ver:`,
-            `1️⃣ Saldo Capital\n2️⃣ Cuota Pendiente\n3️⃣ Días de Atraso\n\nEscribe *0* para regresar al menú principal 🔙`
+            `1️⃣ Saldo Capital\n2️⃣ Cuota Pendiente\n3️⃣ Días de Atraso`,
+            `Escribe *0* para regresar al menú principal 🔙`
         ];
     },
 
@@ -78,69 +99,6 @@ const templates = {
     },
 
     /**
-     * Request account number
-     */
-    askForAccount() {
-        return `Voy a requerir tu *número de cuenta* para terminar con la validación 😊`;
-    },
-
-    /**
-     * Request document/ID
-     */
-    askForDocument() {
-        return `Por favor, bríndame tu *DNI* o *número de cuenta* para verificar en el sistema 🔍`;
-    },
-
-    /**
-     * Invalid phone length error
-     */
-    invalidPhoneLength() {
-        return `El número de teléfono brindado es incorrecto ❌\nDebe poseer *9 dígitos* empezando sin el prefijo o símbolos:\nEjemplo: *9XX-XXX-XXX*`;
-    },
-
-    /**
-     * Invalid document length error (DNI should be 8, RUC should be 11)
-     */
-    invalidDocumentLength() {
-        return `El número brindado es incorrecto ❌\nPor favor ingresa:\n• *DNI*: 8 dígitos (Ej: 12345678)\n• *RUC*: 11 dígitos (Ej: 20123456789)\n• *N° Cuenta*: 18 dígitos`;
-    },
-
-    /**
-     * Invalid account length error
-     */
-    invalidAccountLength() {
-        return `El número de cuenta ingresado es incorrecto ❌\nDebe poseer *18 dígitos*.\nPor favor, verifica bien y vuelve a intentar.`;
-    },
-
-    /**
-     * Invalid RUC format (11 digits but wrong prefix)
-     */
-    invalidRucFormat() {
-        return `El RUC ingresado no tiene el formato correcto ❌\nEl RUC debe empezar con *10* (persona natural) o *20* (empresa).\nEjemplo: *10123456789* o *20123456789*`;
-    },
-
-    /**
-     * Phone/account not found - no debt
-     */
-    noDebtFound() {
-        return `¡Felicitaciones! 🎉\nUsted *no tiene una deuda pendiente* 😊`;
-    },
-
-    /**
-     * Client not found in database
-     */
-    clientNotFound() {
-        return `Lo siento, no encontré información asociada a ese número 😔\nPor favor, verifica que esté correcto o intenta con tu *número de cuenta*.`;
-    },
-
-    /**
-     * Session expired message (sent via WhatsApp)
-     */
-    sessionExpired() {
-        return `Tu sesión ha expirado por inactividad ⏰\nPor favor, escríbenos nuevamente para continuar. 👋`;
-    },
-
-    /**
      * Offices information - Caja Huancayo
      */
     officesInfo() {
@@ -148,7 +106,7 @@ const templates = {
             `📍 *Oficinas Caja Huancayo*`,
             `🏢 *Lima - San Isidro*\n   Av. Javier Prado Este 123\n   Lun-Vie 9:00am - 6:00pm\n\n🏢 *Lima - Miraflores*\n   Av. Larco 456\n   Lun-Vie 9:00am - 6:00pm`,
             `🏢 *Huancayo - Centro*\n   Jr. Real 789, Plaza Constitución\n   Lun-Sab 8:00am - 6:00pm\n\n🏢 *Huancayo - El Tambo*\n   Av. Huancavelica 321\n   Lun-Sab 8:00am - 6:00pm`,
-            `🏢 *Junín - Tarma*\n   Jr. Lima 555\n   Lun-Vie 9:00am - 5:00pm\n\n📞 Central: 01-XXX-XXXX`,
+            `🏢 *Junín - Tarma*\n   Jr. Lima 555\n   Lun-Vie 9:00am - 5:00pm`,
             `Escribe *0* para volver al menú principal 🔙`
         ];
     },
@@ -158,18 +116,19 @@ const templates = {
      */
     updatePhoneRequest() {
         return [
-            `⚠️ Servicio aún no disponible.\nPor favor, acércate a una de nuestras oficinas para actualizar tu número de teléfono.`,
+            `⚠️ *Servicio aún no disponible.*\nPor favor, acércate a una de nuestras oficinas para actualizar tu número de teléfono.`,
             `Escribe *0* para volver al menú principal 🔙`
         ];
     },
 
     /**
-     * Advisor transfer - requires DNI + query FIRST
+     * Advisor transfer - requires DNI + query
      */
     advisorRequest() {
         return [
             `Para derivarte con un asesor, necesito tu *DNI* y tu *consulta* en un solo mensaje.`,
-            `Ejemplo: *"75747335, quiero reprogramar mi deuda"*\n\nEscribe *0* para volver al menú principal 🔙`
+            `Ejemplo: *"75747335, quiero reprogramar mi deuda"*`,
+            `Escribe *0* para volver al menú principal 🔙`
         ];
     },
 
@@ -184,17 +143,17 @@ const templates = {
     },
 
     /**
-     * Only debt information available
+     * Session expired message
      */
-    onlyDebtInfo() {
-        return `Solo puedo brindarte información referente a tu deuda y orientarte a pagarlas.\n¡Gracias! 😊`;
+    sessionExpired() {
+        return `Tu sesión ha expirado por inactividad ⏰\nPor favor, escríbenos nuevamente para continuar. 👋`;
     },
 
     /**
-     * Group message ignored
+     * Security lock - user tries to change DNI while already identified
      */
-    groupMessageIgnored() {
-        return null; // Don't respond to groups
+    securityLock() {
+        return `Por motivos de seguridad debes esperar *2 minutos* para volver a intentar con otro documento 🕰️\n\n_Escribe *0* para continuar con tu consulta actual o espera el tiempo indicado._`;
     },
 
     /**
@@ -202,6 +161,13 @@ const templates = {
      */
     errorFallback() {
         return `Lo siento, estoy experimentando una alta demanda 😅\nPor favor, intenta de nuevo o escribe *"asesor"* para comunicarte con un representante.`;
+    },
+
+    /**
+     * Only debt information available
+     */
+    onlyDebtInfo() {
+        return `Solo puedo brindarte información referente a tu deuda y orientarte a pagarlas.\n¡Gracias! 😊`;
     }
 };
 

@@ -114,15 +114,26 @@ function addMessageToChat(jid, from, text, msgId = null) {
 
 // ==================== AUTH FUNCTIONS ====================
 function clearAuth() {
-    logger.warn('WHATSAPP', 'Limpiando carpeta de autenticación...');
+    logger.warn('WHATSAPP', 'Limpiando contenido de la carpeta de autenticación...');
     try {
-        if (fs.existsSync(path.resolve(__dirname, 'auth'))) {
-            fs.rmSync(path.resolve(__dirname, 'auth'), { recursive: true, force: true });
+        const authPath = path.resolve(__dirname, 'auth');
+        if (fs.existsSync(authPath)) {
+            const files = fs.readdirSync(authPath);
+            for (const file of files) {
+                const curPath = path.join(authPath, file);
+                if (fs.lstatSync(curPath).isDirectory()) {
+                    fs.rmSync(curPath, { recursive: true, force: true });
+                } else {
+                    fs.unlinkSync(curPath);
+                }
+            }
+            logger.success('WHATSAPP', 'Contenido de la carpeta auth eliminado');
+        } else {
+            fs.mkdirSync(authPath);
+            logger.info('WHATSAPP', 'Carpeta auth creada');
         }
-        fs.mkdirSync(path.resolve(__dirname, 'auth'));
-        logger.success('WHATSAPP', 'Carpeta auth limpiada');
     } catch (err) {
-        logger.error('WHATSAPP', 'Error limpiando auth', err);
+        logger.error('WHATSAPP', 'Error limpiando contenido de auth', err);
     }
 }
 
@@ -160,7 +171,16 @@ async function startWhatsApp() {
 
     // Start WhatsApp
     connectionState = 'connecting';
-    const { state, saveCreds } = await useMultiFileAuthState(path.resolve(__dirname, 'auth'));
+
+    // Ensure auth directory exists (critical for Docker)
+    const authDir = path.resolve(__dirname, 'auth');
+    const fs = require('fs');
+    if (!fs.existsSync(authDir)) {
+        fs.mkdirSync(authDir, { recursive: true });
+        logger.info('SYSTEM', 'Created auth directory');
+    }
+
+    const { state, saveCreds } = await useMultiFileAuthState(authDir);
 
     const versionInfo = await fetchLatestBaileysVersion();
     const version = versionInfo?.version || [2, 3000, 1015901307];

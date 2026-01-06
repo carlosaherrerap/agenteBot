@@ -171,7 +171,8 @@ function getDeudaOption4(client) {
 // ==================== REGEX PATTERNS ====================
 const DEBT_INQUIRY_REGEX = /(cuanto debo|cuanto pago|cual es mi deuda|quiero pagar|pagar|deuda|saldo|monto)/i;
 const GREETING_ONLY_REGEX = /^(hola|buen(as)? (noches|tardes|dias)|buenos dias|hey|buenas)$/i;
-const IDENTIFIER_REGEX = /\b(\d{8,})\b/;
+const PURE_NUMBER_REGEX = /^\d+$/; // Only digits, nothing else
+const VALID_ID_REGEX = /^(\d{8}|\d{11})$/; // Exactly 8 or 11 digits (DNI or RUC)
 const ADVISOR_REGEX = /(asesor|human|hablar con|agente|comunicarme|ayuda)/i;
 
 // ==================== MAIN FLOW ====================
@@ -210,26 +211,43 @@ async function runFlow(incomingText, fromJid) {
         return templates.askForDocument();
     }
 
-    // 3. IDENTIFIER DETECTION
-    const idMatch = text.match(IDENTIFIER_REGEX);
-    if (idMatch && session.menuLevel === 'root') {
-        const identifier = idMatch[1];
-        console.log(`🔍 Identifier detected: ${identifier}`);
+    // 3. NUMBER DETECTION AND VALIDATION
+    // Check if the message is purely a number
+    if (PURE_NUMBER_REGEX.test(text)) {
+        // SECURITY CHECK: If user is already identified and tries a different DNI
+        if (session.cachedClient && session.state === 'identified') {
+            // User is trying to enter a new DNI while already identified
+            console.log(`🛡️ Security lock: User ${fromJid} tried to change DNI while already identified`);
+            return templates.securityLock();
+        }
 
-        const result = await getClienteByDNI(identifier);
-        if (result.success && result.cliente) {
-            // ONLY save to cache if found
-            await saveToCache(fromJid, identifier, result.cliente);
-            session.cachedClient = result.cliente;
-            session.state = 'identified';
-            session.menuLevel = 'main';
-            return getMainMenu(getClientName(result.cliente));
-        } else {
-            // DO NOT save anything if not found - allow retry
-            session.cachedClient = null;
-            session.state = 'waiting_dni';
-            session.menuLevel = 'root';
-            return templates.clientNotFound();
+        // Not identified yet - validate length
+        if (session.menuLevel === 'root') {
+            if (VALID_ID_REGEX.test(text)) {
+                // Valid: 8 or 11 digits - query database
+                const identifier = text;
+                console.log(`🔍 Valid identifier detected: ${identifier} (${identifier.length} digits)`);
+
+                const result = await getClienteByDNI(identifier);
+                if (result.success && result.cliente) {
+                    // ONLY save to cache if found
+                    await saveToCache(fromJid, identifier, result.cliente);
+                    session.cachedClient = result.cliente;
+                    session.state = 'identified';
+                    session.menuLevel = 'main';
+                    return getMainMenu(getClientName(result.cliente));
+                } else {
+                    // Not found - allow retry
+                    session.cachedClient = null;
+                    session.state = 'waiting_dni';
+                    session.menuLevel = 'root';
+                    return templates.clientNotFound();
+                }
+            } else {
+                // Invalid: not 8 or 11 digits
+                console.log(`❌ Invalid number length: ${text.length} digits`);
+                return templates.invalidNumberLength();
+            }
         }
     }
 
