@@ -34,6 +34,9 @@ RUN sed -i '/msnodesqlv8/d' package.json && npm install --omit=dev
 # Copy the rest of the application
 COPY . .
 
+# Create auth directory (will be overwritten by volume mount if exists)
+RUN mkdir -p /app/auth
+
 # Expose the API port
 EXPOSE 3000
 
