@@ -1,14 +1,22 @@
+/**
+ * Flow Engine - Max Bot de InformaPeru/Caja Huancayo
+ * 
+ * Sistema de 3 FASES:
+ * - FASE 1: Saludo + Solicitud de documento (DNI/RUC/Cuenta)
+ * - FASE 2: Validación e identificación (8/11/18 dígitos)
+ * - FASE 3: Menú contextual con opciones
+ */
 const { getDeepseekResponse } = require('./services/deepseek');
 const { sendAdvisorEmail } = require('./services/email');
 const { getClienteByDNI, saveConversacion } = require('./services/database');
 const sql = require('./utils/sqlServer');
 const templates = require('./utils/templates');
-const fs = require('fs');
-const path = require('path');
 
 // ==================== SESSION MANAGEMENT ====================
-const sessions = new Map(); // jid -> { cachedClient, menuLevel, lastActivity, state }
-const SESSION_TIMEOUT = 150000; // 2.5 minutes in milliseconds
+const sessions = new Map(); // jid -> session data
+const SESSION_TIMEOUT = 120000; // 2 minutos en milisegundos
+const MAX_FAILED_ATTEMPTS = 4;
+const BLOCK_DURATION = 30 * 60 * 1000; // 30 minutos en milisegundos
 
 // ==================== BOT PAUSE CONTROL ====================
 const pausedChats = new Set();
@@ -29,13 +37,19 @@ function toggleBotPause(jid) {
 
 // ==================== SESSION FUNCTIONS ====================
 
+/**
+ * Obtener o crear sesión para un JID
+ */
 function getSession(jid) {
     if (!sessions.has(jid)) {
         sessions.set(jid, {
-            cachedClient: null,
-            menuLevel: 'root', // 'root', 'main', 'deuda_submenu', 'descuento', etc.
+            phase: 1,                    // FASE 1, 2 o 3
+            menuLevel: 'main',           // main, deuda_submenu, oficinas, etc.
+            pendingQuery: null,          // Consulta en cola de FASE 1
+            failedAttempts: 0,           // Intentos fallidos de identificación
+            blockedUntil: null,          // Timestamp de desbloqueo
+            cachedClient: null,          // Datos del cliente de BD
             lastActivity: Date.now(),
-            state: 'initial', // 'initial', 'waiting_dni', 'identified', etc.
             conversationHistory: []
         });
     }
@@ -99,8 +113,11 @@ async function saveToCache(jid, dni, data) {
     }
 }
 
-// ==================== CALCULATION FUNCTIONS ====================
+// ==================== UTILITY FUNCTIONS ====================
 
+/**
+ * Calcular saldo de cuota sumando componentes
+ */
 function calculateSaldoCuota(client) {
     if (!client) return '0.00';
     const capital = parseFloat(client.SALDO_CAPITAL_PROXIMA_CUOTA || 0);
@@ -111,11 +128,13 @@ function calculateSaldoCuota(client) {
     return (capital + interes + mora + gasto + congelado).toFixed(2);
 }
 
+/**
+ * Obtener nombre del cliente (primer nombre)
+ */
 function getClientName(client) {
     if (!client) return 'Cliente';
-    // Try multiple possible column names
     const fullName = client.NOMBRE_CLIENTE || client.CLIENTE_PREMIUM || client.nombre_completo || 'Cliente';
-    // Extract first name from "APELLIDO, NOMBRE" format
+    // Extraer primer nombre de formato "APELLIDO, NOMBRE"
     const parts = fullName.split(',');
     if (parts.length > 1) {
         return parts[1].trim().split(' ')[0];
@@ -123,57 +142,113 @@ function getClientName(client) {
     return fullName.split(' ')[0];
 }
 
+// ==================== REGEX PATTERNS ====================
+
+// Saludo simple: hola, buenas noches, informaperu, caja huancayo, hola + nombre
+const GREETING_REGEX = /^(hola|buen(as?|os)?\s*(noches?|tardes?|d[ií]as?)?|hey|informaper[uú]|caja\s*huancayo|hola\s+\w{1,15})$/i;
+
+// Consulta: palabras clave que indican una pregunta
+const QUERY_REGEX = /(pagar|quiero|deseo|como|puedo|podr[ií]a|debo|con\s*quien|que|horario|oficina|atencion|cuanto|deuda|saldo|reprogramar|cuando|donde)/i;
+
+// Número puro (solo dígitos)
+const PURE_NUMBER_REGEX = /^\d+$/;
+
+// Documento válido: 8 (DNI), 11 (RUC), 18 (Cuenta)
+const VALID_DOCUMENT_REGEX = /^(\d{8}|\d{11}|\d{18})$/;
+
+// Carnet de extranjería keywords
+const FOREIGN_DOC_REGEX = /(carnet|extranjero|extranjeria|no\s*soy\s*de|soy\s*extranjero)/i;
+
+// No es consulta - respuestas cortas/negativas
+const NOT_QUERY_REGEX = /^(no|no\s*gracias|ah[ií]\s*n[o]?m[as]?s?|voy\s*a?\s*dar\s*despu[eé]s|luego|ya|ok|bueno)$/i;
+
+// Extractor de números de texto alfanumérico
+const EXTRACT_NUMBERS_REGEX = /\d+/g;
+
+// Referencia a entregar documento
+const DOC_REFERENCE_REGEX = /(este\s*es\s*mi|mi\s*(dni|ruc|carnet|documento)|es\s*de\s*mi|no\s*es\s*mio|no\s*es\s*m[ií]o)/i;
+
+// Asesor keywords
+const ADVISOR_REGEX = /(asesor|humano|hablar\s*con|agente|comunicarme|ayuda|persona\s*real)/i;
+
 // ==================== MENU TEMPLATES ====================
 
 function getMainMenu(name) {
-    // Use templates.js for consistent messaging with full greeting format
-    const messages = templates.greetingWithName(name);
-    return messages.join('\n\n');
+    const messages = templates.mainMenuWithName(name);
+    return Array.isArray(messages) ? messages.join('\n\n') : messages;
 }
 
 function getMenuOnly(name) {
-    // Just the menu options without full greeting (for returning to menu)
     const messages = templates.menuOptions(name);
-    return messages.join('\n\n');
+    return Array.isArray(messages) ? messages.join('\n\n') : messages;
 }
 
-function getDeudaSubmenu(name) {
+function getDeudaSubmenu() {
     const messages = templates.debtDetailsMenu();
-    return messages.join('\n\n');
+    return Array.isArray(messages) ? messages.join('\n\n') : messages;
 }
 
-function getDeudaOption1(client) {
-    const saldoCapital = parseFloat(client.SALDO_CAPITAL || client.SALDO_CUOTA || client.SALDO_TOTAL || 0).toFixed(2);
-    const messages = templates.debtSaldoCapital(saldoCapital);
-    return messages.join('\n\n');
+// ==================== PHASE HANDLERS ====================
+
+/**
+ * Verificar si el usuario está bloqueado
+ */
+function isBlocked(session) {
+    if (session.blockedUntil && Date.now() < session.blockedUntil) {
+        return true;
+    }
+    if (session.blockedUntil && Date.now() >= session.blockedUntil) {
+        session.blockedUntil = null;
+        session.failedAttempts = 0;
+    }
+    return false;
 }
 
-function getDeudaOption2(client) {
-    const totalCuota = calculateSaldoCuota(client);
-    const messages = templates.debtCuotaPendiente(totalCuota);
-    return messages.join('\n\n');
+/**
+ * Detectar si un texto es una consulta
+ */
+function isQuery(text) {
+    if (NOT_QUERY_REGEX.test(text)) return false;
+    return QUERY_REGEX.test(text);
 }
 
-function getDeudaOption3(client) {
-    const diasAtraso = client.DIAS_ATRASO || 0;
-    const messages = templates.debtDiasAtraso(diasAtraso);
-    return messages.join('\n\n');
+/**
+ * Extraer números de un texto alfanumérico
+ */
+function extractNumbers(text) {
+    const matches = text.match(EXTRACT_NUMBERS_REGEX);
+    return matches || [];
 }
 
-function getDeudaOption4(client) {
-    const name = getClientName(client);
-    const ultimoPago = client.ULTIMO_PAGO || 'No hay registros';
-    const montoUltimoPago = client.MONTO_ULTIMO_PAGO ? `S/ ${parseFloat(client.MONTO_ULTIMO_PAGO).toFixed(2)}` : 'N/A';
+/**
+ * Validar y buscar cliente por documento
+ */
+async function validateAndFindClient(identifier, session, fromJid) {
+    console.log(`🔍 Buscando cliente: ${identifier} (${identifier.length} dígitos)`);
 
-    return `*${name} - Último Pago*\n\n💳 Fecha: ${ultimoPago}\n💵 Monto: ${montoUltimoPago}\n\n0️⃣ Regresar al menú anterior`;
+    const result = await getClienteByDNI(identifier);
+
+    if (result.success && result.cliente) {
+        // Cliente encontrado
+        await saveToCache(fromJid, identifier, result.cliente);
+        session.cachedClient = result.cliente;
+        session.phase = 3;
+        session.menuLevel = 'main';
+        session.failedAttempts = 0;
+        return { success: true, client: result.cliente };
+    } else {
+        // Cliente no encontrado
+        session.failedAttempts++;
+        console.log(`❌ Intento fallido ${session.failedAttempts}/${MAX_FAILED_ATTEMPTS}`);
+
+        if (session.failedAttempts >= MAX_FAILED_ATTEMPTS) {
+            session.blockedUntil = Date.now() + BLOCK_DURATION;
+            return { success: false, blocked: true };
+        }
+
+        return { success: false, blocked: false };
+    }
 }
-
-// ==================== REGEX PATTERNS ====================
-const DEBT_INQUIRY_REGEX = /(cuanto debo|cuanto pago|cual es mi deuda|quiero pagar|pagar|deuda|saldo|monto)/i;
-const GREETING_ONLY_REGEX = /^(hola|buen(as)? (noches|tardes|dias)|buenos dias|hey|buenas)$/i;
-const PURE_NUMBER_REGEX = /^\d+$/; // Only digits, nothing else
-const VALID_ID_REGEX = /^(\d{8}|\d{11})$/; // Exactly 8 or 11 digits (DNI or RUC)
-const ADVISOR_REGEX = /(asesor|human|hablar con|agente|comunicarme|ayuda)/i;
 
 // ==================== MAIN FLOW ====================
 
@@ -185,156 +260,297 @@ async function runFlow(incomingText, fromJid) {
 
     // Check session timeout
     if (checkSessionTimeout(fromJid)) {
-        const responses = [
-            'Tu sesión ha expirado por inactividad. Por favor, envía tu DNI nuevamente para continuar.',
-            'Hola, tu sesión venció. Por favor proporciona tu DNI para reiniciar.'
-        ];
-        return responses[Math.floor(Math.random() * responses.length)];
+        return templates.sessionExpired();
     }
 
     const session = getSession(fromJid);
 
-    // Get bot context/persona
-    const botContext = (process.env.BOT_CONTEXT || 'Eres Max, asistente virtual de InformaPeru para cobranzas.').replace(/\\n/g, '\n');
-    const botName = botContext.match(/(?:Eres|soy|me llamo)\s+(\w+)/i)?.[1] || 'Max';
-
-    // 1. GREETING ONLY
-    if (GREETING_ONLY_REGEX.test(lowText) && !session.cachedClient) {
-        session.state = 'waiting_dni';
-        const greetingMessages = templates.greetingNeutral();
-        return greetingMessages.join('\n\n');
+    // Verificar si está bloqueado
+    if (isBlocked(session)) {
+        return templates.tooManyAttempts();
     }
 
-    // 2. DEBT INQUIRY WITHOUT IDENTIFIER
-    if (DEBT_INQUIRY_REGEX.test(lowText) && !session.cachedClient && !IDENTIFIER_REGEX.test(text)) {
-        session.state = 'waiting_dni';
-        return templates.askForDocument();
-    }
+    // ==================== FASE 1: SALUDO ====================
+    if (session.phase === 1 && !session.cachedClient) {
 
-    // 3. NUMBER DETECTION AND VALIDATION
-    // Check if the message is purely a number
-    if (PURE_NUMBER_REGEX.test(text)) {
-        // SECURITY CHECK: If user is already identified and tries a different DNI
-        if (session.cachedClient && session.state === 'identified') {
-            // User is trying to enter a new DNI while already identified
-            console.log(`🛡️ Security lock: User ${fromJid} tried to change DNI while already identified`);
-            return templates.securityLock();
+        // Si es un saludo simple
+        if (GREETING_REGEX.test(lowText)) {
+            session.phase = 2;
+            const messages = templates.greetingPhase1();
+            return Array.isArray(messages) ? messages.join('\n\n') : messages;
         }
 
-        // Not identified yet - validate length
-        if (session.menuLevel === 'root') {
-            if (VALID_ID_REGEX.test(text)) {
-                // Valid: 8 or 11 digits - query database
-                const identifier = text;
-                console.log(`🔍 Valid identifier detected: ${identifier} (${identifier.length} digits)`);
+        // Si es una consulta (guardar en cola)
+        if (isQuery(text)) {
+            session.pendingQuery = text;
+            session.phase = 2;
+            const greetings = templates.greetingPhase1();
+            return Array.isArray(greetings) ? greetings.join('\n\n') : greetings;
+        }
 
-                const result = await getClienteByDNI(identifier);
-                if (result.success && result.cliente) {
-                    // ONLY save to cache if found
-                    await saveToCache(fromJid, identifier, result.cliente);
-                    session.cachedClient = result.cliente;
-                    session.state = 'identified';
-                    session.menuLevel = 'main';
-                    return getMainMenu(getClientName(result.cliente));
+        // Cualquier otro mensaje inicial -> pasar a FASE 2 pidiendo documento
+        session.phase = 2;
+        const messages = templates.greetingPhase1();
+        return Array.isArray(messages) ? messages.join('\n\n') : messages;
+    }
+
+    // ==================== FASE 2: VALIDACIÓN ====================
+    if (session.phase === 2 || (session.phase === 1 && !session.cachedClient)) {
+        session.phase = 2; // Asegurar que estamos en FASE 2
+
+        // CONDICIÓN 1: VALIDACIÓN NUMÉRICA (solo dígitos)
+        if (PURE_NUMBER_REGEX.test(text)) {
+
+            // Verificar longitud válida (8, 11 o 18 dígitos)
+            if (VALID_DOCUMENT_REGEX.test(text)) {
+                const result = await validateAndFindClient(text, session, fromJid);
+
+                if (result.blocked) {
+                    return templates.tooManyAttempts();
+                }
+
+                if (result.success) {
+                    const name = getClientName(result.client);
+
+                    // Si hay consulta pendiente, responderla primero
+                    if (session.pendingQuery) {
+                        const query = session.pendingQuery;
+                        session.pendingQuery = null;
+                        // Por ahora, mostrar menú. En futuro, procesar consulta con IA
+                        return getMainMenu(name);
+                    }
+
+                    return getMainMenu(name);
                 } else {
-                    // Not found - allow retry
-                    session.cachedClient = null;
-                    session.state = 'waiting_dni';
-                    session.menuLevel = 'root';
                     return templates.clientNotFound();
                 }
             } else {
-                // Invalid: not 8 or 11 digits
-                console.log(`❌ Invalid number length: ${text.length} digits`);
-                return templates.invalidNumberLength();
+                // Número con longitud inválida
+                return templates.invalidDocumentLength();
             }
         }
+
+        // CONDICIÓN 2: VALIDACIÓN TEXTO
+        if (!PURE_NUMBER_REGEX.test(text)) {
+
+            // Verificar si menciona carnet de extranjería
+            if (FOREIGN_DOC_REGEX.test(text)) {
+                return templates.foreignDocumentSuggestion();
+            }
+
+            // Si es una consulta sin documento
+            if (isQuery(text) && !DOC_REFERENCE_REGEX.test(text)) {
+                // Consulta de nivel 3 (sin riesgo) - responder si hay info
+                return templates.noInfoAvailable();
+            }
+
+            // Si no es consulta (respuesta negativa/inválida)
+            if (NOT_QUERY_REGEX.test(text)) {
+                return templates.invalidDataNotQuery();
+            }
+
+            // Texto que no es ni consulta ni respuesta clara
+            return templates.invalidDataNotQuery();
+        }
+
+        // CONDICIÓN 3: VALIDACIÓN ALFANUMÉRICA
+        const extractedNumbers = extractNumbers(text);
+
+        if (extractedNumbers.length > 0) {
+            // Buscar números con longitud válida
+            const validNumbers = extractedNumbers.filter(num =>
+                num.length === 8 || num.length === 11 || num.length === 18
+            );
+
+            if (validNumbers.length > 0) {
+                // Usar el primer número válido encontrado
+                const identifier = validNumbers[0];
+                const result = await validateAndFindClient(identifier, session, fromJid);
+
+                if (result.blocked) {
+                    return templates.tooManyAttempts();
+                }
+
+                if (result.success) {
+                    const name = getClientName(result.client);
+                    return getMainMenu(name);
+                } else {
+                    return templates.clientNotFound();
+                }
+            } else {
+                // Hay números pero ninguno con longitud válida
+                return templates.invalidDocumentLength();
+            }
+        }
+
+        // Sin números encontrados
+        return templates.invalidDataNotQuery();
     }
 
-    // 4. MAIN MENU NAVIGATION
-    if (session.menuLevel === 'main' && /^[1-4]$/.test(text) && session.cachedClient) {
-        const option = parseInt(text);
+    // ==================== FASE 3: MENÚ CONTEXTUAL ====================
+    if (session.phase === 3 && session.cachedClient) {
         const name = getClientName(session.cachedClient);
+        const client = session.cachedClient;
 
-        switch (option) {
-            case 1: // Detalles deuda -> Show submenu
+        // SEGURIDAD: Si intenta ingresar otro documento (8, 11 o 18 dígitos)
+        if (PURE_NUMBER_REGEX.test(text) && VALID_DOCUMENT_REGEX.test(text)) {
+            return templates.securityBlockOtherDocument();
+        }
+
+        // MENÚ PRINCIPAL
+        if (session.menuLevel === 'main') {
+            const option = parseInt(text);
+
+            if (option === 1) {
                 session.menuLevel = 'deuda_submenu';
-                return getDeudaSubmenu(name);
-            case 2: // Oficinas
+                return getDeudaSubmenu();
+            }
+            if (option === 2) {
                 session.menuLevel = 'oficinas';
                 const officeMessages = templates.officesInfo();
-                return officeMessages.join('\n\n');
-            case 3: // Actualizar teléfono
+                return Array.isArray(officeMessages) ? officeMessages.join('\n\n') : officeMessages;
+            }
+            if (option === 3) {
                 session.menuLevel = 'telefono';
-                const phoneMessages = templates.updatePhoneRequest();
-                return phoneMessages.join('\n\n');
-            case 4: // Asesor
+                const msg = templates.updatePhoneUnavailable();
+                return msg;
+            }
+            if (option === 4) {
                 session.menuLevel = 'asesor_inicio';
                 const advisorMessages = templates.advisorRequest();
-                return advisorMessages.join('\n\n');
+                return Array.isArray(advisorMessages) ? advisorMessages.join('\n\n') : advisorMessages;
+            }
+
+            // Si es texto, evaluar si es consulta
+            if (isNaN(option)) {
+                // Es texto, verificar si menciona opciones como "opción 4"
+                const optionMatch = text.match(/opci[oó]n\s*(\d)/i);
+                if (optionMatch) {
+                    const extractedOption = parseInt(optionMatch[1]);
+                    if (extractedOption >= 1 && extractedOption <= 4) {
+                        // Simular que escribió el número
+                        if (extractedOption === 1) {
+                            session.menuLevel = 'deuda_submenu';
+                            return getDeudaSubmenu();
+                        }
+                        if (extractedOption === 2) {
+                            session.menuLevel = 'oficinas';
+                            const officeMessages = templates.officesInfo();
+                            return Array.isArray(officeMessages) ? officeMessages.join('\n\n') : officeMessages;
+                        }
+                        if (extractedOption === 3) {
+                            return templates.updatePhoneUnavailable();
+                        }
+                        if (extractedOption === 4) {
+                            session.menuLevel = 'asesor_inicio';
+                            const advisorMessages = templates.advisorRequest();
+                            return Array.isArray(advisorMessages) ? advisorMessages.join('\n\n') : advisorMessages;
+                        }
+                    }
+                }
+
+                // Es una consulta en texto libre
+                if (isQuery(text)) {
+                    // Por ahora usar IA para responder
+                    // Futuro: buscar en tabla de consultas predeterminadas
+                }
+
+                return templates.invalidMenuOption();
+            }
+
+            // Número fuera de rango 1-4
+            return templates.invalidMenuOption();
         }
-    }
 
-    // 5. DEUDA SUBMENU NAVIGATION
-    if (session.menuLevel === 'deuda_submenu' && /^[0-4]$/.test(text) && session.cachedClient) {
-        const option = parseInt(text);
+        // SUBMENÚ DEUDA
+        if (session.menuLevel === 'deuda_submenu') {
+            const option = parseInt(text);
 
-        if (option === 0) {
-            session.menuLevel = 'main';
-            return getMainMenu(getClientName(session.cachedClient));
+            if (option === 1) {
+                const saldoCapital = parseFloat(client.SALDO_CAPITAL || client.SALDO_CUOTA || client.SALDO_TOTAL || 0).toFixed(2);
+                return templates.debtSaldoCapital(saldoCapital);
+            }
+            if (option === 2) {
+                const totalCuota = calculateSaldoCuota(client);
+                return templates.debtCuotaPendiente(totalCuota);
+            }
+            if (option === 3) {
+                const diasAtraso = client.DIAS_ATRASO || 0;
+                return templates.debtDiasAtraso(diasAtraso);
+            }
+            if (option === 4 || option === 0) {
+                // Regresar al menú principal
+                session.menuLevel = 'main';
+                return getMenuOnly(name);
+            }
+
+            return templates.invalidDebtOption();
         }
 
-        switch (option) {
-            case 1:
-                return getDeudaOption1(session.cachedClient);
-            case 2:
-                return getDeudaOption2(session.cachedClient);
-            case 3:
-                return getDeudaOption3(session.cachedClient);
-            case 4:
-                return getDeudaOption4(session.cachedClient);
-        }
-    }
-
-    // 6. RETURN TO PREVIOUS LEVEL (0 from any submenu)
-    if (text === '0' && session.cachedClient) {
-        if (['descuento', 'oficinas', 'otros', 'telefono', 'asesor_inicio', 'deuda_submenu'].includes(session.menuLevel)) {
-            session.menuLevel = 'main';
-            return getMenuOnly(getClientName(session.cachedClient));
-        }
-    }
-
-    // 7. ADVISOR REQUEST
-    if (ADVISOR_REGEX.test(lowText)) {
-        // If not identified, ask for DNI first
-        if (!session.cachedClient) {
-            session.state = 'waiting_dni';
-            return templates.askForDocument();
+        // VOLVER AL MENÚ (0 desde cualquier submenú)
+        if (text === '0') {
+            if (['oficinas', 'telefono', 'asesor_inicio', 'asesor_esperando'].includes(session.menuLevel)) {
+                session.menuLevel = 'main';
+                return getMenuOnly(name);
+            }
         }
 
-        // If in asesor_inicio state, capture the query and send email
+        // MENÚ OFICINAS
+        if (session.menuLevel === 'oficinas') {
+            if (text === '0') {
+                session.menuLevel = 'main';
+                return getMenuOnly(name);
+            }
+            // Cualquier otra respuesta, volver a mostrar oficinas
+            const officeMessages = templates.officesInfo();
+            return Array.isArray(officeMessages) ? officeMessages.join('\n\n') : officeMessages;
+        }
+
+        // ASESOR - Esperando DNI + Consulta
         if (session.menuLevel === 'asesor_inicio') {
-            const dni = session.cachedClient.DOCUMENTO || session.cachedClient.CUENTA_CREDITO || 'Sin ID';
-            await sendAdvisorEmail(dni, text);
-            session.menuLevel = 'main';
-            const confirmMessages = templates.advisorTransferConfirm();
-            return confirmMessages.join('\n\n');
+            if (text === '0') {
+                session.menuLevel = 'main';
+                return getMenuOnly(name);
+            }
+
+            // Verificar si contiene documento válido + consulta
+            const numbers = extractNumbers(text);
+            const validDoc = numbers.find(n => n.length === 8 || n.length === 11 || n.length === 18);
+
+            if (validDoc) {
+                // Tiene documento válido, enviar a asesor
+                const dni = validDoc;
+                const query = text.replace(validDoc, '').replace(/,/g, '').trim();
+
+                if (query.length > 5) {
+                    await sendAdvisorEmail(dni, query);
+                    session.menuLevel = 'main';
+                    const confirmMessages = templates.advisorTransferConfirm();
+                    return Array.isArray(confirmMessages) ? confirmMessages.join('\n\n') : confirmMessages;
+                }
+            }
+
+            return templates.invalidDocumentForAdvisor();
         }
 
-        // Otherwise, show advisor request template
-        session.menuLevel = 'asesor_inicio';
-        const advisorMessages = templates.advisorRequest();
-        return advisorMessages.join('\n\n');
+        // SOLICITUD DE ASESOR (keyword en cualquier momento)
+        if (ADVISOR_REGEX.test(lowText)) {
+            session.menuLevel = 'asesor_inicio';
+            const advisorMessages = templates.advisorRequest();
+            return Array.isArray(advisorMessages) ? advisorMessages.join('\n\n') : advisorMessages;
+        }
     }
 
-    // 8. AI FALLBACK
+    // ==================== AI FALLBACK ====================
     console.log('🤖 AI Fallback');
+
+    const botContext = (process.env.BOT_CONTEXT || 'Eres Max, asistente virtual de InformaPeru para Caja Huancayo.').replace(/\\n/g, '\n');
 
     let clientContext = '';
     if (session.cachedClient) {
         clientContext = `\n\nDATOS DEL CLIENTE:
-DNI: ${session.cachedClient.NRO_DNI || 'N/A'}
-Nombre: ${session.cachedClient.CLIENTE_PREMIUM || 'N/A'}
+DNI: ${session.cachedClient.NRO_DNI || session.cachedClient.DOCUMENTO || 'N/A'}
+Nombre: ${session.cachedClient.NOMBRE_CLIENTE || session.cachedClient.CLIENTE_PREMIUM || 'N/A'}
 Saldo Total: S/ ${session.cachedClient.SALDO_TOTAL || 0}
 Cuota a Pagar: S/ ${calculateSaldoCuota(session.cachedClient)}
 Días Atraso: ${session.cachedClient.DIAS_ATRASO || 0}`;
@@ -343,7 +559,7 @@ Días Atraso: ${session.cachedClient.DIAS_ATRASO || 0}`;
     const messages = [
         {
             role: 'system',
-            content: `${botContext}\n\nREGLAS:\n1. Usa SOLO los datos proporcionados.\n2. Si no hay DNI, solicítalo.${clientContext}`
+            content: `${botContext}\n\nREGLAS:\n1. Usa SOLO los datos proporcionados.\n2. Si no hay DNI, solicítalo.\n3. Sé amable y formal.${clientContext}`
         },
         ...session.conversationHistory,
         { role: 'user', content: text }
@@ -361,7 +577,7 @@ Días Atraso: ${session.cachedClient.DIAS_ATRASO || 0}`;
 
         await saveConversacion({
             telefonoWhatsapp: fromJid,
-            dniProporcionado: session.cachedClient?.NRO_DNI || null,
+            dniProporcionado: session.cachedClient?.NRO_DNI || session.cachedClient?.DOCUMENTO || null,
             mensajeCliente: text,
             respuestaBot: aiResponse,
             intent: 'AI_RESPONSE'
@@ -370,7 +586,7 @@ Días Atraso: ${session.cachedClient.DIAS_ATRASO || 0}`;
         return aiResponse;
     } catch (err) {
         console.error('Error calling AI:', err.message);
-        return 'Lo siento, error técnico. Intenta más tarde o escribe "asesor".';
+        return templates.errorFallback();
     }
 }
 

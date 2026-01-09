@@ -1,6 +1,6 @@
 /**
- * Message Templates for InformaPeru Chatbot
- * All bot responses are centralized here for easy maintenance
+ * Message Templates for InformaPeru Chatbot - Max
+ * Bot: Max - Asistente Virtual de InformaPeru/Caja Huancayo
  * 
  * Templates can return:
  * - A single string (one message)
@@ -8,210 +8,265 @@
  */
 
 const templates = {
+    // ==================== FASE 1: SALUDO ====================
+
     /**
-     * First greeting - neutral (no client identified)
-     * Triggered by keywords: hola, bolas, buenos, buenas, información, día, soy
-     * Two separate messages as per spec
+     * Saludo inicial - FASE 1
+     * Se muestra al inicio de toda conversación
+     */
+    greetingPhase1() {
+        return [
+            `Hola, Soy Max 😊Tu asistente virtual de InformaPeru🤖`,
+            `Para ayudarte con tu consulta, necesito tu *DNI*, *RUC* o *Número de cuenta.*`
+        ];
+    },
+
+    /**
+     * Mensaje cuando el cliente da un saludo simple
+     * hola, buenas noches, informaperu, caja huancayo, hola {nombre}
      */
     greetingNeutral() {
         return [
-            `Hola, Soy *Max* 🤖, tu asistente virtual.\nTe saludamos de *InformaPeru*.`,
-            `Para ayudarte con tu consulta, necesito tu *DNI* o *número de cuenta*.`
+            `Hola, Soy Max 😊Tu asistente virtual de InformaPeru🤖`,
+            `Para ayudarte con tu consulta, necesito tu *DNI*, *RUC* o *Número de cuenta.*`
         ];
     },
 
+    // ==================== FASE 2: VALIDACIÓN ====================
+
     /**
-     * When user sends a query without document identification
-     * Triggered when message contains query keywords (pagar, quiero, debes, cuota, etc.)
-     * but no DNI/RUC number
+     * Solicitar documento nuevamente
      */
-    queryWithoutDocument() {
-        return `Lo siento, te escucho 👂, pero para ayudarte con tu consulta, necesito que primero me brindes tu *DNI* o *número de cuenta* para verificar en el sistema 🔍`;
+    askForDocument() {
+        return `Para ayudarte con tu consulta, necesito tu *DNI*, *RUC* o *Número de cuenta.*`;
     },
 
     /**
-     * Main menu after client identified
-     * @param {string} name - Customer first name from NOMBRE_CLIENTE
+     * Error de longitud de número (no es 8, 11 o 18 dígitos)
      */
-    greetingWithName(name) {
-        return [
-            `*${name.toUpperCase()}* 😊 Para continuar con la atención solicitada una opción a escribir:\n(Recuerde siempre los números)`,
-            `1️⃣ Detalles deuda\n2️⃣ Oficinas cercanas\n3️⃣ Actualizar teléfono\n4️⃣ Comunicarse con un asesor`,
-            `_Como método de seguridad solo se puede consultar 1 documento (DNI, RUC) 🛡️\no espera 2 minutos hasta cerrar sesión para volver a consultar un documento diferente_`
-        ];
+    invalidDocumentLength() {
+        return `🪪Por favor ingresa un número de documento correcto(8 dígitos) o cuenta(18 dígitos)`;
     },
 
     /**
-     * Menu options only (for returning to menu)
-     * @param {string} name - Customer first name
+     * Número inválido - mensaje alternativo
      */
-    menuOptions(name) {
+    invalidNumberLength() {
+        return `🪪Por favor ingresa un número de documento correcto(8 dígitos) o cuenta(18 dígitos)`;
+    },
+
+    /**
+     * Datos incorrectos cuando no es una consulta válida
+     */
+    invalidDataNotQuery() {
+        return `Datos incorrectos, asegurate de ingresar un número de 8 dígitos para *DNI*, 11 para *RUC* o 18 para *cuenta*`;
+    },
+
+    /**
+     * Sugerencia para carnet de extranjería
+     */
+    foreignDocumentSuggestion() {
+        return `Comprendo tu situación, para ello te puedo sugerir ingresar usando tu *NÚMERO DE CUENTA* o acercarte a las oficinas de Caja Huancayo para que te brinden un ID de sesión por WhatsApp.`;
+    },
+
+    /**
+     * No se tiene información sobre la consulta
+     */
+    noInfoAvailable() {
+        return `No tengo información o permisos sobre ello, te recomiendo consultarlo con un asesor.\nPara derivarte con un asesor, necesito tu DNI y tu consulta en un solo mensaje.\nEjemplo: "75747335, horarios de atención"`;
+    },
+
+    /**
+     * Cliente no encontrado en base de datos
+     */
+    clientNotFound() {
+        return `😿Lo sentimos. No hemos encontrado información de usted. Intente con otro documento`;
+    },
+
+    /**
+     * Bloqueo por demasiados intentos (4 intentos fallidos)
+     */
+    tooManyAttempts() {
+        return `⚠️Hemos detectado múltiples intentos de verificación con diferentes números de documento.\nEsta acción infringe nuestras políticas de seguridad y protección de datos. Por su seguridad y la de terceros, le informamos que no podrá realizar nuevas identificaciones en los próximos 30 minutos.`;
+    },
+
+    /**
+     * Seguridad - usuario intenta consultar otro documento
+     */
+    securityBlockOtherDocument() {
+        return `⚠️Usted no tiene permiso para consultar información de otra persona`;
+    },
+
+    /**
+     * Alias para compatibilidad
+     */
+    securityLock() {
+        return `⚠️Usted no tiene permiso para consultar información de otra persona`;
+    },
+
+    // ==================== FASE 3: MENÚ CONTEXTUAL ====================
+
+    /**
+     * Menú principal con nombre del cliente
+     * @param {string} name - Nombre del cliente
+     */
+    mainMenuWithName(name) {
         return [
-            `*${name.toUpperCase()}* 😊 Para continuar selecciona una opción:`,
+            `*${name.toUpperCase()}* 😊 Para continuar con la atención escribe un número de la lista o escribe brevemente tu consulta(por ejm: Deseo reprogramar mi deuda)`,
             `1️⃣ Detalles deuda\n2️⃣ Oficinas cercanas\n3️⃣ Actualizar teléfono\n4️⃣ Comunicarse con un asesor`
         ];
     },
 
     /**
-     * Invalid number length error (not 8 or 11 digits)
-     * Validates: 8 digits = DNI, 11 digits = RUC
+     * Menú principal sin mensaje de bienvenida (para regresar)
+     * @param {string} name - Nombre del cliente
      */
-    invalidNumberLength() {
-        return `El número ingresado no es válido ❌\n\nCondición de validación: el número debe contener 8 o 11 dígitos\n\nPor favor ingresa:\n• *DNI*: 8 dígitos\n• *RUC*: 11 dígitos`;
+    menuOptions(name) {
+        return [
+            `*${name.toUpperCase()}* 😊 Para continuar con la atención escribe un número de la lista`,
+            `1️⃣ Detalles deuda\n2️⃣ Oficinas cercanas\n3️⃣ Actualizar teléfono\n4️⃣ Comunicarse con un asesor`
+        ];
     },
 
     /**
-     * Client not found in database
-     * Shows after DB search returns no results
+     * Alias para greetingWithName para compatibilidad
      */
-    clientNotFound() {
-        return `No se encuentra información con este número. Vuelve a intentar. 🔍`;
+    greetingWithName(name) {
+        return [
+            `*${name.toUpperCase()}* 😊 Para continuar con la atención escribe un número de la lista o escribe brevemente tu consulta(por ejm: Deseo reprogramar mi deuda)`,
+            `1️⃣ Detalles deuda\n2️⃣ Oficinas cercanas\n3️⃣ Actualizar teléfono\n4️⃣ Comunicarse con un asesor`
+        ];
     },
 
     /**
-     * Request document/ID
-     * Used when bot needs to re-request identification
-     */
-    askForDocument() {
-        return `Por favor, bríndame tu *DNI* o *número de cuenta* para verificar en el sistema 🔍`;
-    },
-
-    /**
-     * Debt details sub-menu (Option 1)
-     * Sub-options: 1=Saldo Capital, 2=Cuota Pendiente, 3=Días de Atraso
+     * Submenú de detalles de deuda
      */
     debtDetailsMenu() {
         return [
-            `📋 *Consulta de Deuda*\nEscribe el número de la información que deseas ver:`,
-            `1️⃣ Saldo Capital\n2️⃣ Cuota Pendiente\n3️⃣ Días de Atraso`,
-            `Escribe *0* para regresar al menú principal 🔙`
+            `1️⃣ Saldo Capital\n2️⃣ Cuota Pendiente\n3️⃣ Días de Atraso\n4️⃣ Regresar al menú anterior`
         ];
     },
 
     /**
-     * Saldo Capital response
-     * @param {string|number} amount - Saldo capital amount
+     * Saldo Capital
+     * @param {string|number} amount - Monto del saldo capital
      */
     debtSaldoCapital(amount) {
-        return [
-            `💰 Tu *Saldo Capital* es:\n*S/ ${amount}*`,
-            `Escribe *0* para volver al menú principal 🔙`
-        ];
+        return `💰 Tu Saldo Capital es: S/ ${amount}`;
     },
 
     /**
-     * Cuota Pendiente response
-     * @param {string|number} amount - Cuota pendiente amount
+     * Cuota Pendiente
+     * @param {string|number} amount - Monto de la cuota pendiente
      */
     debtCuotaPendiente(amount) {
-        return [
-            `📅 Tu *Cuota Pendiente* es:\n*S/ ${amount}*`,
-            `Escribe *0* para volver al menú principal 🔙`
-        ];
+        return `📅 Tu Cuota Pendiente es: S/ ${amount}`;
     },
 
     /**
-     * Días de atraso response
-     * @param {string|number} days - Number of days overdue
+     * Días de Atraso
+     * @param {string|number} days - Número de días de atraso
      */
     debtDiasAtraso(days) {
-        return [
-            `⏰ Tienes *${days} días* de atraso.`,
-            `Escribe *0* para volver al menú principal 🔙`
-        ];
+        return `⏰ Tienes ${days} días de atraso.`;
     },
 
     /**
-     * Offices information - Caja Huancayo (Option 2)
-     * Lists all available offices with addresses and hours
+     * Información de oficinas - Caja Huancayo
      */
     officesInfo() {
         return [
             `📍 *Oficinas Caja Huancayo*`,
-            `🏢 *Huancayo - Centro*\n   Jr. Real 789, Plaza Constitución\n   Lun-Sab 8:00am - 6:00pm`,
-            `🏢 *Huancayo - El Tambo*\n   Av. Huancavelica 321\n   Lun-Sab 8:00am - 6:00pm`,
-            `🏢 *Junín - Tarma*\n   Jr. Lima 555\n   Lun-Vie 9:00am - 5:00pm`,
-            `📞 *Central*: 01-6XO-8130`,
-            `Escribe *0* para volver al menú principal 🔙`
+            `🏢 *Lima - San Isidro*\n   Av. Javier Prado Este 123\n   Lun-Vie 9:00am - 6:00pm\n\n🏢 *Lima - Miraflores*\n   Av. Larco 456\n   Lun-Vie 9:00am - 6:00pm`,
+            `🏢 *Huancayo - Centro*\n   Jr. Real 789, Plaza Constitución\n   Lun-Sab 8:00am - 6:00pm\n\n🏢 *Huancayo - El Tambo*\n   Av. Huancavelica 321\n   Lun-Sab 8:00am - 6:00pm`,
+            `🏢 *Junín - Tarma*\n   Jr. Lima 555\n   Lun-Vie 9:00am - 5:00pm\n\n📞 Central: 01-XXX-XXXX\n\nEscribe 0 para volver al menú principal 👈`
         ];
     },
 
     /**
-     * Update phone - service not available (Option 3)
+     * Actualizar teléfono - servicio no disponible
+     */
+    updatePhoneUnavailable() {
+        return `⚠️ Servicio aún no disponible.\nPor favor, acércate a una de nuestras oficinas para actualizar tu número de teléfono.`;
+    },
+
+    /**
+     * Alias para compatibilidad
      */
     updatePhoneRequest() {
         return [
-            `⚠️ *Servicio aún no disponible.*\nAcércate a nuestras oficinas para cambiar tu número de teléfono.`,
+            `⚠️ Servicio aún no disponible.\nPor favor, acércate a una de nuestras oficinas para actualizar tu número de teléfono.`,
             `Escribe *0* para volver al menú principal 🔙`
         ];
     },
 
     /**
-     * Advisor transfer - requires DNI + query (Option 4)
+     * Solicitud de asesor - requiere DNI + consulta
      */
     advisorRequest() {
         return [
-            `Para derivarte con un asesor, necesita tu *DNI* y tu *consulta* en un solo mensaje.`,
-            `Ejemplo: *"75747335, quiero reprogramar mi deuda"*`,
-            `Escribe *0* para regresar al menú principal 🔙`
+            `Para derivarte con un asesor, necesito tu DNI y tu consulta en un solo mensaje.`,
+            `Ejemplo: "DNI 12345678, quiero reprogramar mi deuda"`
         ];
     },
 
     /**
-     * Advisor confirmation after sending request
+     * Documento inválido para derivar a asesor
+     */
+    invalidDocumentForAdvisor() {
+        return `⚠️Por favor, escriba un documento válido`;
+    },
+
+    /**
+     * Confirmación de derivación a asesor
      */
     advisorTransferConfirm() {
         return [
-            `Listo ✅\nSe te está derivando con un asesor personalizado.\n\n⏳ Te contactaremos en:\n• *Junio - Tarma*: Lun-Vie 9:00am - 6:00pm\n• *Huancayo*: Lun-Sab 8:00am - 6:00pm`,
+            `Listo ✅\nSe te está derivando con un asesor personalizado.\n\n⏳ Te contactaremos en horario de oficina.`,
             `Escribe *0* para regresar al menú principal 🔙`
         ];
     },
 
     /**
-     * Session expired message
-     * Sent after 2 minutes of inactivity
+     * Sesión expirada por inactividad
      */
     sessionExpired() {
-        return `Tu sesión ha expirado por inactividad ⏰\nPor favor, escríbenos nuevamente para continuar. 👋`;
+        return `Su sesión ha expirado por inactividad 🕰️ Estaremos aquí para cuando necesite ayuda u orientación. Hasta pronto👋`;
     },
 
     /**
-     * Security lock - user tries to change DNI while already identified
-     * Prevents querying different documents within the same session
+     * Opción de menú inválida
      */
-    securityLock() {
-        return `Por motivos de seguridad debes esperar *2 minutos* para volver a intentar con otro documento 🕰️\n\n_Escribe *0* para continuar con tu consulta actual o espera el tiempo indicado._`;
+    invalidMenuOption() {
+        return `Opción inválida, por favor elige un número(por ejemplo: 4)`;
+    },
+
+    /**
+     * Opción inválida en submenú de deuda
+     */
+    invalidDebtOption() {
+        return `Por favor, selecciona una opción válida (1, 2, 3, 4)`;
     },
 
     /**
      * Error fallback
      */
     errorFallback() {
-        return `Lo siento, estoy experimentando una alta demanda 😅\nPor favor, intenta de nuevo o escribe *"asesor"* para comunicarte con un representante.`;
+        return `Lo siento, estoy experimentando dificultades técnicas 😅\nPor favor, intenta de nuevo o escribe *"asesor"* para comunicarte con un representante.`;
     },
 
     /**
-     * Only debt information available
-     * Response when user asks about unrelated topics
+     * Solo información de deuda disponible
      */
     onlyDebtInfo() {
         return `Solo puedo brindarte información referente a tu deuda y orientarte a pagarlas.\n¡Gracias! 😊`;
     },
 
     /**
-     * Invalid menu option
-     * When user enters a number that's not a valid option
+     * Consulta sin documento - alias para compatibilidad
      */
-    invalidMenuOption() {
-        return `Por favor, selecciona una opción válida del menú (1, 2, 3 o 4) 🔢\nEscribe *0* para ver el menú nuevamente.`;
-    },
-
-    /**
-     * Invalid debt submenu option
-     * When user enters invalid option in debt details submenu
-     */
-    invalidDebtOption() {
-        return `Por favor, selecciona una opción válida (1, 2, 3) o escribe *0* para volver al menú principal 🔙`;
+    queryWithoutDocument() {
+        return `Para ayudarte con tu consulta, necesito tu *DNI*, *RUC* o *Número de cuenta.*`;
     }
 };
 
