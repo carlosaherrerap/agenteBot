@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FAQ Admin - InformaPeru Bot</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #00d9ff;
+            text-shadow: 0 0 20px rgba(0, 217, 255, 0.3);
+        }
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .form-group { margin-bottom: 16px; }
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            color: #aaa;
+            font-size: 14px;
+        }
+        .form-group input, .form-group textarea, .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            background: rgba(0,0,0,0.3);
+            color: #fff;
+            font-size: 14px;
+        }
+        .form-group textarea { min-height: 80px; resize: vertical; }
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .btn-primary { background: linear-gradient(135deg, #00d9ff, #0099cc); color: #000; }
+        .btn-danger { background: linear-gradient(135deg, #ff4757, #cc0022); color: #fff; }
+        .btn-success { background: linear-gradient(135deg, #2ed573, #1e9c5a); color: #fff; }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 5px 20px rgba(0,0,0,0.3); }
+        .btn-sm { padding: 8px 16px; font-size: 12px; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        th { color: #00d9ff; font-weight: 600; }
+        .badge {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .badge-success { background: rgba(46, 213, 115, 0.2); color: #2ed573; }
+        .badge-danger { background: rgba(255, 71, 87, 0.2); color: #ff4757; }
+        .badge-category {
+            background: rgba(0, 217, 255, 0.2);
+            color: #00d9ff;
+        }
+        .actions { display: flex; gap: 8px; }
+        .keywords { color: #888; font-size: 12px; }
+        .empty { text-align: center; padding: 40px; color: #666; }
+        .header-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .stats { display: flex; gap: 20px; }
+        .stat { text-align: center; }
+        .stat-value { font-size: 24px; font-weight: 700; color: #00d9ff; }
+        .stat-label { font-size: 12px; color: #888; }
+        .back-link { color: #00d9ff; text-decoration: none; }
+        .back-link:hover { text-decoration: underline; }
+        @media (max-width: 768px) {
+            table { display: block; overflow-x: auto; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header-actions">
+            <a href="/dashboard.html" class="back-link">← Volver al Dashboard</a>
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-value" id="totalFaqs">0</div>
+                    <div class="stat-label">Total FAQs</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="activeFaqs">0</div>
+                    <div class="stat-label">Activas</div>
+                </div>
+            </div>
+        </div>
+        
+        <h1>🤖 Administración de FAQs</h1>
+        
+        <!-- Formulario para agregar -->
+        <div class="card">
+            <h3 style="margin-bottom: 20px;">➕ Agregar Nueva FAQ</h3>
+            <form id="faqForm">
+                <div class="form-group">
+                    <label>Pregunta</label>
+                    <input type="text" id="pregunta" placeholder="¿Cómo puedo reprogramar mi deuda?" required>
+                </div>
+                <div class="form-group">
+                    <label>Palabras Clave (separadas por coma)</label>
+                    <input type="text" id="palabras_clave" placeholder="reprogramar, deuda, refinanciar, pagar" required>
+                </div>
+                <div class="form-group">
+                    <label>Respuesta</label>
+                    <textarea id="respuesta" placeholder="Para reprogramar tu deuda, debes acercarte a una de nuestras oficinas..." required></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Categoría</label>
+                    <select id="categoria">
+                        <option value="general">General</option>
+                        <option value="deuda">Deuda</option>
+                        <option value="pago">Pago</option>
+                        <option value="oficinas">Oficinas</option>
+                        <option value="asesor">Asesor</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Guardar FAQ</button>
+            </form>
+        </div>
+        
+        <!-- Lista de FAQs -->
+        <div class="card">
+            <h3 style="margin-bottom: 20px;">📋 Preguntas Frecuentes</h3>
+            <div id="faqList">
+                <p class="empty">Cargando FAQs...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = '/api/faqs';
+        
+        async function loadFaqs() {
+            try {
+                const response = await fetch(API_URL);
+                const faqs = await response.json();
+                renderFaqs(faqs);
+                document.getElementById('totalFaqs').textContent = faqs.length;
+                document.getElementById('activeFaqs').textContent = faqs.filter(f => f.activo).length;
+            } catch (err) {
+                document.getElementById('faqList').innerHTML = 
+                    '<p class="empty">Error al cargar FAQs. ¿Ejecutaste init_faq.sql?</p>';
+            }
+        }
+        
+        function renderFaqs(faqs) {
+            if (!faqs.length) {
+                document.getElementById('faqList').innerHTML = 
+                    '<p class="empty">No hay FAQs. ¡Agrega la primera!</p>';
+                return;
+            }
+            
+            const html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Pregunta</th>
+                            <th>Categoría</th>
+                            <th>Usos</th>
+                            <th>Estado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${faqs.map(faq => `
+                            <tr>
+                                <td>
+                                    <strong>${faq.pregunta}</strong>
+                                    <div class="keywords">🔑 ${faq.palabras_clave}</div>
+                                </td>
+                                <td><span class="badge badge-category">${faq.categoria}</span></td>
+                                <td>${faq.veces_usado || 0}</td>
+                                <td>
+                                    <span class="badge ${faq.activo ? 'badge-success' : 'badge-danger'}">
+                                        ${faq.activo ? 'Activo' : 'Inactivo'}
+                                    </span>
+                                </td>
+                                <td class="actions">
+                                    <button class="btn btn-sm ${faq.activo ? 'btn-danger' : 'btn-success'}" 
+                                            onclick="toggleFaq(${faq.ID}, ${!faq.activo})">
+                                        ${faq.activo ? 'Desactivar' : 'Activar'}
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteFaq(${faq.ID})">
+                                        Eliminar
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            document.getElementById('faqList').innerHTML = html;
+        }
+        
+        document.getElementById('faqForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                pregunta: document.getElementById('pregunta').value,
+                palabras_clave: document.getElementById('palabras_clave').value,
+                respuesta: document.getElementById('respuesta').value,
+                categoria: document.getElementById('categoria').value
+            };
+            
+            try {
+                const res = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (res.ok) {
+                    document.getElementById('faqForm').reset();
+                    loadFaqs();
+                }
+            } catch (err) {
+                alert('Error al guardar FAQ');
+            }
+        });
+        
+        async function toggleFaq(id, activo) {
+            try {
+                await fetch(`${API_URL}/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ activo })
+                });
+                loadFaqs();
+            } catch (err) {
+                alert('Error al actualizar FAQ');
+            }
+        }
+        
+        async function deleteFaq(id) {
+            if (!confirm('¿Eliminar esta FAQ?')) return;
+            try {
+                await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
+                loadFaqs();
+            } catch (err) {
+                alert('Error al eliminar FAQ');
+            }
+        }
+        
+        // Load FAQs on page load
+        loadFaqs();
+    </script>
+</body>
+</html>

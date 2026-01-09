@@ -5,38 +5,83 @@
  * Templates can return:
  * - A single string (one message)
  * - An array of strings (multiple messages sent separately)
+ * 
+ * Response Variation System to avoid bot detection by Meta
  */
+
+// ==================== VARIACIÓN DE RESPUESTAS ====================
+// Configuración de frecuencia de emojis (0.0 = nunca, 1.0 = siempre)
+const EMOJI_FREQUENCY = 0.7; // 70% de las veces incluir emojis
+
+/**
+ * Selecciona aleatoriamente una variante de un array
+ * @param {Array} variants - Array de variantes
+ * @returns {string} Una variante aleatoria
+ */
+function pickRandom(variants) {
+    return variants[Math.floor(Math.random() * variants.length)];
+}
+
+/**
+ * Decide si incluir emoji basado en frecuencia
+ * @param {string} withEmoji - Versión con emoji
+ * @param {string} withoutEmoji - Versión sin emoji
+ * @returns {string} Una de las dos versiones
+ */
+function maybeEmoji(withEmoji, withoutEmoji) {
+    return Math.random() < EMOJI_FREQUENCY ? withEmoji : withoutEmoji;
+}
+
 
 const templates = {
     // ==================== FASE 1: SALUDO ====================
     /**
      * Saludo inicial - FASE 1
-     * Se muestra al inicio de toda conversación
+     * Se muestra al inicio de toda conversación (CON VARIACIONES)
      */
     greetingPhase1() {
-        return [
-            `Hola, Soy Max 😊Tu asistente virtual de InformaPeru🤖`,
-            `Para ayudarte con tu consulta, necesito tu *DNI*, *RUC* o *Número de cuenta.*`
+        const saludos = [
+            `Hola, Soy Max ${maybeEmoji('😊', '')} Tu asistente virtual de InformaPeru${maybeEmoji('🤖', '')}`,
+            `Hola! Soy Max, tu asistente de InformaPeru${maybeEmoji(' 👋', '')}`,
+            `Bienvenido a InformaPeru${maybeEmoji(' 🏦', '')} Soy Max, tu asistente virtual`,
+            `Hola! Te saluda Max de InformaPeru${maybeEmoji(' 😊', '')}`
         ];
+        const solicitudes = [
+            `Para ayudarte, necesito tu *DNI*, *RUC* o *Número de cuenta*`,
+            `Para continuar, por favor indícame tu *DNI*, *RUC* o *cuenta*`,
+            `Para asistirte, necesito tu documento de identidad (*DNI*, *RUC* o *cuenta*)`
+        ];
+        return [pickRandom(saludos), pickRandom(solicitudes)];
     },
 
     /**
      * Mensaje cuando el cliente da un saludo simple
-     * hola, buenas noches, informaperu, caja huancayo, hola {nombre}
      */
     greetingNeutral() {
-        return [
-            `Hola, Soy Max 😊Tu asistente virtual de InformaPeru🤖`,
-            `Para ayudarte con tu consulta, necesito tu *DNI*, *RUC* o *Número de cuenta.*`
+        const saludos = [
+            `Hola! Soy Max${maybeEmoji(' 😊', '')} Tu asistente virtual de InformaPeru`,
+            `Buen día! Soy Max, tu asistente de InformaPeru${maybeEmoji(' 👋', '')}`,
+            `Hola! Te saluda Max de InformaPeru${maybeEmoji(' 🤖', '')}`
         ];
+        const solicitudes = [
+            `Para ayudarte con tu consulta, necesito tu *DNI*, *RUC* o *Número de cuenta*`,
+            `Por favor, indícame tu *DNI*, *RUC* o *cuenta* para continuar`
+        ];
+        return [pickRandom(saludos), pickRandom(solicitudes)];
     },
 
     // ==================== FASE 2: VALIDACIÓN ====================
     /**
-     * Solicitar documento nuevamente
+     * Solicitar documento nuevamente (CON VARIACIONES)
      */
     askForDocument() {
-        return `Para ayudarte con tu consulta, necesito tu *DNI*, *RUC* o *Número de cuenta.*`;
+        const variantes = [
+            `Para ayudarte, necesito tu *DNI*, *RUC* o *Número de cuenta*`,
+            `Por favor, indícame tu *DNI*, *RUC* o *cuenta*`,
+            `Necesito tu documento de identidad (*DNI*, *RUC* o *cuenta*) para continuar`,
+            `Escríbeme tu *DNI*, *RUC* o *cuenta* para poder ayudarte`
+        ];
+        return pickRandom(variantes);
     },
 
     /**
@@ -208,7 +253,8 @@ const templates = {
     advisorRequest() {
         return [
             `Para derivarte con un asesor, necesito tu DNI y tu consulta en un solo mensaje.`,
-            `Ejemplo: "DNI 12345678, quiero reprogramar mi deuda"`
+            `Ejemplo: *"12345678, quiero reprogramar mi deuda"*`,
+            `Escribe *0* para volver al menú principal 🔙`
         ];
     },
 
@@ -224,16 +270,40 @@ const templates = {
      */
     advisorTransferConfirm() {
         return [
-            `Listo ✅\nSe te está derivando con un asesor personalizado.\n\n⏳ Te contactaremos en horario de oficina.`,
-            `Escribe *0* para regresar al menú principal 🔙`
+            `Listo ${maybeEmoji('✅', '')}\\nSe te está derivando con un asesor personalizado.\\n\\n${maybeEmoji('⏳', '')} Te contactaremos en horario de oficina.`,
+            `Escribe *0* para regresar al menú principal ${maybeEmoji('🔙', '')}`
         ];
     },
 
     /**
-     * Sesión expirada por inactividad
+     * Confirmación de derivación a asesor - Variante (para FASE 2 cuando ya dan DNI+consulta)
+     */
+    advisorTransferConfirmVariant() {
+        const confirmaciones = [
+            `Se te ha derivado con un asesor ${maybeEmoji('🦸', '')} Nos pondremos en contacto contigo en breve.`,
+            `Listo! Un asesor personalizado se comunicará contigo pronto ${maybeEmoji('📞', '')}`,
+            `Tu solicitud fue enviada ${maybeEmoji('✅', '')} Un asesor te contactará en horario de oficina.`,
+            `Recibido! Te derivamos con un asesor que atenderá tu caso ${maybeEmoji('👨‍💼', '')}`
+        ];
+        return pickRandom(confirmaciones);
+    },
+
+    /**
+     * Sesión expirada por inactividad (2 minutos)
      */
     sessionExpired() {
-        return `Tu sesión ha expirado por inactividad ⏰\nPor favor, escríbenos nuevamente para continuar. 👋`;
+        return `Tu sesión ha expirado por inactividad ⏰\nPor favor, escríbenos nuevamente para continuar. Estamos aquí para solucionar tus consultas o vuelve pronto cuando nos necesites 👋`;
+    },
+
+    /**
+     * Groserías o insultos detectados
+     * Respuesta amable para calmar al usuario
+     */
+    profanityDetected() {
+        return [
+            `Entiendo que puedas estar frustrado 😔 pero me gustaría ayudarte de la mejor manera.`,
+            `Por favor, cuéntame tu consulta con calma y haré todo lo posible por asistirte. Estoy aquí para ayudarte 🤝`
+        ];
     },
 
     /**
@@ -248,6 +318,13 @@ const templates = {
      */
     invalidDebtOption() {
         return `Por favor, selecciona una opción válida (1, 2, 3, 4)`;
+    },
+
+    /**
+     * Opción inválida - sugerir volver al menú
+     */
+    invalidOptionGoBack() {
+        return `Opción no válida. Escribe *0* para volver al menú principal 🔙`;
     },
 
     /**

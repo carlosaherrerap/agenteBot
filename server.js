@@ -14,7 +14,7 @@ const {
 } = require('@whiskeysockets/baileys');
 const path = require('path');
 const fs = require('fs');
-const { runFlow, isBotPaused, toggleBotPause } = require('./flowEngine');
+const { runFlow, isBotPaused, toggleBotPause, setOnSessionExpired } = require('./flowEngine');
 const logger = require('./utils/logger');
 const sql = require('./utils/sqlServer');
 const redis = require('./utils/redis');
@@ -158,14 +158,34 @@ async function startWhatsApp() {
     // Register session expiration callback to send WhatsApp message
     const templates = require('./utils/templates');
     redis.setOnSessionExpired(async (jid) => {
-        if (sock && whatsappConnected) {
-            try {
-                const message = templates.sessionExpired();
-                await sock.sendMessage(jid, { text: message });
-                logger.info('WHATSAPP', `📤 Mensaje de sesión expirada enviado a ${jid.split('@')[0]}`);
-            } catch (err) {
-                logger.error('WHATSAPP', 'Error enviando mensaje de sesión expirada', err);
-            }
+        // Only attempt if WhatsApp is connected and socket is valid
+        if (!sock || !whatsappConnected) {
+            logger.debug('WHATSAPP', `Sesión expirada para ${jid} pero WA no conectado - omitiendo notificación`);
+            return;
+        }
+
+        try {
+            const message = templates.sessionExpired();
+            await sock.sendMessage(jid, { text: message });
+            logger.info('WHATSAPP', `📤 Mensaje de sesión expirada enviado a ${jid.split('@')[0]}`);
+        } catch (err) {
+            // Don't re-throw - silently handle to avoid affecting the bot
+            logger.debug('WHATSAPP', `No se pudo enviar mensaje de expiración a ${jid.split('@')[0]}: ${err.message}`);
+        }
+    });
+
+    // Register flowEngine session expiration callback (proactive notification after 2 min inactivity)
+    setOnSessionExpired(async (jid) => {
+        if (!sock || !whatsappConnected) {
+            logger.debug('WHATSAPP', `Sesión expirada para ${jid} pero WA no conectado`);
+            return;
+        }
+        try {
+            const message = templates.sessionExpired();
+            await sock.sendMessage(jid, { text: message });
+            logger.info('WHATSAPP', `⏰ Mensaje de sesión expirada enviado a ${jid.split('@')[0]}`);
+        } catch (err) {
+            logger.debug('WHATSAPP', `No se pudo enviar mensaje de expiración: ${err.message}`);
         }
     });
 
@@ -479,6 +499,43 @@ app.post('/api/chats/:jid/toggle-bot', (req, res) => {
 app.get('/api/chats/:jid/status', (req, res) => {
     const jid = decodeURIComponent(req.params.jid);
     res.json({ isPaused: isBotPaused(jid) });
+});
+
+// ==================== FAQ ADMIN ENDPOINTS ====================
+
+// Get all FAQs
+app.get('/api/faqs', async (req, res) => {
+    try {
+        const faqs = await sql.getAllFAQs();
+        res.json(faqs);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Add new FAQ
+app.post('/api/faqs', async (req, res) => {
+    const { pregunta, palabras_clave, respuesta, categoria } = req.body;
+    if (!pregunta || !palabras_clave || !respuesta) {
+        return res.status(400).json({ error: 'Campos requeridos: pregunta, palabras_clave, respuesta' });
+    }
+    const success = await sql.addFAQ(pregunta, palabras_clave, respuesta, categoria || 'general');
+    res.json({ success });
+});
+
+// Update FAQ
+app.put('/api/faqs/:id', async (req, res) => {
+    const { pregunta, palabras_clave, respuesta, categoria, activo } = req.body;
+    const success = await sql.updateFAQ(
+        parseInt(req.params.id), pregunta, palabras_clave, respuesta, categoria, activo
+    );
+    res.json({ success });
+});
+
+// Delete FAQ
+app.delete('/api/faqs/:id', async (req, res) => {
+    const success = await sql.deleteFAQ(parseInt(req.params.id));
+    res.json({ success });
 });
 
 // Get QR code

@@ -1,12 +1,12 @@
 /**
  * Redis Cache Client for Session Management
- * TTL: 4 minutes for inactive sessions
+ * TTL: 2 minutes for inactive sessions
  * FALLBACK: Uses in-memory cache if Redis is not available
  */
 require('dotenv').config();
 const logger = require('./logger');
 
-const SESSION_TTL = 4 * 60; // 4 minutes in seconds
+const SESSION_TTL = 2 * 60; // 2 minutes in seconds
 const SESSION_TTL_MS = SESSION_TTL * 1000;
 
 let redis = null;
@@ -141,18 +141,18 @@ function resetMemoryTimer(jid) {
     if (memoryCacheTimers.has(jid)) {
         clearTimeout(memoryCacheTimers.get(jid));
     }
-    const timer = setTimeout(async () => {
+    const timer = setTimeout(() => {
         memoryCache.delete(jid);
         memoryCacheTimers.delete(jid);
         logger.sessionExpired(jid);
 
-        // Call the callback to send WhatsApp message
+        // Call the callback to send WhatsApp message (fire-and-forget)
         if (onSessionExpiredCallback) {
-            try {
-                await onSessionExpiredCallback(jid);
-            } catch (err) {
-                logger.error('REDIS', 'Error en callback de sesión expirada', err);
-            }
+            // Don't await - prevent session cleanup from blocking the bot
+            Promise.resolve(onSessionExpiredCallback(jid)).catch(err => {
+                // Silently log - don't let session cleanup affect other clients
+                logger.debug('REDIS', `No se pudo notificar sesión expirada: ${err.message}`);
+            });
         }
     }, SESSION_TTL_MS);
     memoryCacheTimers.set(jid, timer);

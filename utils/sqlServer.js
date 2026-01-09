@@ -371,6 +371,138 @@ async function deleteCache(jid) {
     return true;
 }
 
+// ==================== FAQ OPERATIONS ====================
+
+/**
+ * Search for FAQ matching keywords in user query
+ * @param {string} query - User's question
+ * @returns {object|null} FAQ entry or null
+ */
+async function searchFAQ(query) {
+    if (!query || query.length < 3) return null;
+
+    try {
+        const p = await getPool();
+
+        // Clean and extract words from query
+        const words = query.toLowerCase()
+            .replace(/[¿?¡!.,;:'"]/g, '')
+            .split(/\s+/)
+            .filter(w => w.length > 2);
+
+        if (words.length === 0) return null;
+
+        // Build dynamic LIKE conditions for each word
+        const request = p.request();
+        const conditions = words.map((word, i) => {
+            request.input(`word${i}`, sql.NVarChar, `%${word}%`);
+            return `LOWER(palabras_clave) LIKE @word${i}`;
+        }).join(' OR ');
+
+        const result = await request.query(`
+            SELECT TOP 1 * FROM FAQ_RESPUESTAS 
+            WHERE activo = 1 AND (${conditions})
+            ORDER BY veces_usado DESC
+        `);
+
+        if (result.recordset.length > 0) {
+            // Increment usage counter
+            const faq = result.recordset[0];
+            await p.request().query(`
+                UPDATE FAQ_RESPUESTAS 
+                SET veces_usado = veces_usado + 1, ultima_actualizacion = GETDATE() 
+                WHERE ID = ${faq.ID}
+            `);
+            logger.debug('SQL', `FAQ encontrado: "${faq.pregunta}"`);
+            return faq;
+        }
+
+        logger.debug('SQL', 'No se encontró FAQ para la consulta');
+        return null;
+
+    } catch (err) {
+        logger.error('SQL', 'Error buscando FAQ', err);
+        return null;
+    }
+}
+
+/**
+ * Get all FAQs for admin panel
+ */
+async function getAllFAQs() {
+    try {
+        const p = await getPool();
+        const result = await p.request().query(
+            'SELECT * FROM FAQ_RESPUESTAS ORDER BY categoria, veces_usado DESC'
+        );
+        return result.recordset;
+    } catch (err) {
+        logger.error('SQL', 'Error obteniendo FAQs', err);
+        return [];
+    }
+}
+
+/**
+ * Add new FAQ
+ */
+async function addFAQ(pregunta, palabrasClave, respuesta, categoria = 'general') {
+    try {
+        const p = await getPool();
+        await p.request()
+            .input('pregunta', sql.NVarChar, pregunta)
+            .input('palabras', sql.NVarChar, palabrasClave)
+            .input('respuesta', sql.NVarChar, respuesta)
+            .input('categoria', sql.NVarChar, categoria)
+            .query(`INSERT INTO FAQ_RESPUESTAS (pregunta, palabras_clave, respuesta, categoria) 
+                    VALUES (@pregunta, @palabras, @respuesta, @categoria)`);
+        logger.info('SQL', `FAQ agregado: "${pregunta}"`);
+        return true;
+    } catch (err) {
+        logger.error('SQL', 'Error agregando FAQ', err);
+        return false;
+    }
+}
+
+/**
+ * Update FAQ
+ */
+async function updateFAQ(id, pregunta, palabrasClave, respuesta, categoria, activo) {
+    try {
+        const p = await getPool();
+        await p.request()
+            .input('id', sql.Int, id)
+            .input('pregunta', sql.NVarChar, pregunta)
+            .input('palabras', sql.NVarChar, palabrasClave)
+            .input('respuesta', sql.NVarChar, respuesta)
+            .input('categoria', sql.NVarChar, categoria)
+            .input('activo', sql.Bit, activo ? 1 : 0)
+            .query(`UPDATE FAQ_RESPUESTAS SET 
+                    pregunta=@pregunta, palabras_clave=@palabras, 
+                    respuesta=@respuesta, categoria=@categoria, activo=@activo, 
+                    ultima_actualizacion=GETDATE() WHERE ID=@id`);
+        return true;
+    } catch (err) {
+        logger.error('SQL', 'Error actualizando FAQ', err);
+        return false;
+    }
+}
+
+/**
+ * Delete FAQ
+ */
+async function deleteFAQ(id) {
+    try {
+        const p = await getPool();
+        await p.request()
+            .input('id', sql.Int, id)
+            .query('DELETE FROM FAQ_RESPUESTAS WHERE ID=@id');
+        return true;
+    } catch (err) {
+        logger.error('SQL', 'Error eliminando FAQ', err);
+        return false;
+    }
+}
+
 module.exports = {
     connect,
     getConnectionStatus,
@@ -384,6 +516,12 @@ module.exports = {
     upsertCache,
     getCache,
     deleteCache,
+    searchFAQ,
+    getAllFAQs,
+    addFAQ,
+    updateFAQ,
+    deleteFAQ,
     PHONE_FIELDS,
     ESTADO_FILTRO
 };
+
