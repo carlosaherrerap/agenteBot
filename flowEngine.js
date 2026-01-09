@@ -418,6 +418,37 @@ async function runFlow(incomingText, fromJid) {
                     }
                 }
 
+                // ==================== DETECCIÓN DE INTENCIÓN POR TEXTO ====================
+                // Si el usuario escribe texto que corresponde a opciones del menú
+                const DEUDA_INTENT = /(detalle|ver|saber|informaci[oó]n).*(deuda|saldo|cuota|atraso|prestamo)/i;
+                const OFICINAS_INTENT = /(oficina|sucursal|atencion|atenci[oó]n|direccion|direcci[oó]n|donde|ir|cercana)/i;
+                const TELEFONO_INTENT = /(actualizar|cambiar|modificar).*(tel[eé]fono|celular|n[uú]mero)/i;
+                const ASESOR_INTENT = /(asesor|humano|hablar|agente|comunicar|contactar|persona|ayuda)/i;
+
+                // Opción 4: Asesor
+                if (ASESOR_INTENT.test(lowText)) {
+                    session.menuLevel = 'asesor_inicio';
+                    return templates.advisorRequest();
+                }
+
+                // Opción 2: Oficinas
+                if (OFICINAS_INTENT.test(lowText)) {
+                    session.menuLevel = 'oficinas';
+                    return templates.officesInfo();
+                }
+
+                // Opción 3: Teléfono
+                if (TELEFONO_INTENT.test(lowText)) {
+                    session.menuLevel = 'telefono';
+                    return templates.updatePhoneRequest();
+                }
+
+                // Opción 1: Deuda (detectar antes de datos específicos)
+                if (DEUDA_INTENT.test(lowText)) {
+                    session.menuLevel = 'deuda_submenu';
+                    return getDeudaSubmenu();
+                }
+
                 // ==================== RESPUESTA DIRECTA CON DATOS DEL CLIENTE ====================
                 // Detectar consultas sobre saldo capital/préstamo
                 const SALDO_CAPITAL_REGEX = /(saldo\s*(capital)?|capital|prestamo|pr[eé]stamo\s*(total|inicial)?|deuda\s*total|cuanto\s*(debo|es\s*mi\s*deuda)|monto\s*(total|prestamo))/i;
