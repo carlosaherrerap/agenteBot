@@ -450,13 +450,29 @@ async function runFlow(incomingText, fromJid) {
                 }
 
                 // ==================== RESPUESTA DIRECTA CON DATOS DEL CLIENTE ====================
-                // Detectar consultas sobre saldo capital/préstamo
-                const SALDO_CAPITAL_REGEX = /(saldo\s*(capital)?|capital|prestamo|pr[eé]stamo\s*(total|inicial)?|deuda\s*total|cuanto\s*(debo|es\s*mi\s*deuda)|monto\s*(total|prestamo))/i;
-                // Detectar consultas sobre cuota pendiente
-                const CUOTA_REGEX = /(cuota\s*(pendiente)?|proxim[oa]\s*(cuota|pago)|siguiente\s*pago|cuanto\s*(pagar|debo\s*pagar)|pago\s*mensual)/i;
-                // Detectar consultas sobre días de atraso
-                const ATRASO_REGEX = /(dias?\s*(de\s*)?(atraso|mora)|atrasad[oa]|morosidad|a\s*tiempo|cuando\s*(deb[ií]|ten[ií]a\s*que)\s*pagar)/i;
+                // IMPORTANTE: CUOTA se evalúa PRIMERO porque "cuanto debo pagar" se refiere a cuota, no saldo capital
 
+                // Detectar consultas sobre cuota pendiente / próximo pago
+                // Palabras clave: pagar, siguiente pago, próxima cuota, fecha de pago
+                const CUOTA_REGEX = /(cuota|proxim[oa]\s*(cuota|pago|fecha)|siguiente\s*(pago|cuota)|fecha\s*(de\s*)?pago|debo\s*(de\s*)?pagar|cuanto\s*(debo\s*)?(de\s*)?pagar|pago\s*mensual)/i;
+
+                // Detectar consultas sobre saldo capital/préstamo total
+                // Palabras clave: saldo capital, préstamo total, deuda total, cuanto debo (sin "pagar")
+                const SALDO_CAPITAL_REGEX = /(saldo\s*capital|capital|prestamo|pr[eé]stamo\s*(total|inicial)?|deuda\s*total|monto\s*(total|prestamo)|cuanto\s*es\s*mi\s*deuda)/i;
+
+                // Detectar consultas sobre días de atraso/mora
+                const ATRASO_REGEX = /(dias?\s*(de\s*)?(atraso|mora)|atrasad[oa]|morosidad|a\s*tiempo|cuando\s*(deb[ií]|ten[ií]a\s*que)\s*pagar|cuantos?\s*dias?)/i;
+
+                // CUOTA se evalúa primero (cuando hay intención de pagar)
+                if (CUOTA_REGEX.test(lowText)) {
+                    const cuotaPendiente = parseFloat(client.SALDO_CUOTA || 0).toFixed(2);
+                    return [
+                        `${name}, tu *Cuota Pendiente* a pagar es: *S/ ${cuotaPendiente}* 📅`,
+                        `Escribe *0* para volver al menú principal 👈`
+                    ];
+                }
+
+                // SALDO CAPITAL (préstamo total)
                 if (SALDO_CAPITAL_REGEX.test(lowText)) {
                     const saldoCapital = parseFloat(client.SALDO_CAPITAL || 0).toFixed(2);
                     return [
@@ -465,13 +481,6 @@ async function runFlow(incomingText, fromJid) {
                     ];
                 }
 
-                if (CUOTA_REGEX.test(lowText)) {
-                    const cuotaPendiente = parseFloat(client.SALDO_CUOTA || 0).toFixed(2);
-                    return [
-                        `${name}, tu *Cuota Pendiente* a pagar es: *S/ ${cuotaPendiente}* 📅`,
-                        `Escribe *0* para volver al menú principal 🔙`
-                    ];
-                }
 
                 if (ATRASO_REGEX.test(lowText)) {
                     const diasAtraso = parseInt(client.DIAS_ATRASO || 0);

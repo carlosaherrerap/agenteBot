@@ -7,10 +7,12 @@ services:
   app:
     build: .
     container_name: informaperu-bot
+    # Ejecutar como root para evitar problemas de permisos con auth
+    user: root
     ports:
       - "3000:3000"
     volumes:
-      - ./auth:/app/auth
+      - ./auth:/app/auth:rw
     env_file:
       - .env
     environment:
@@ -22,6 +24,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
+    # Comandos para asegurar que auth existe y tiene permisos
+    command: >
+      sh -c "mkdir -p /app/auth && chmod 777 /app/auth && node server.js"
 
   # Redis for session caching
   redis:
