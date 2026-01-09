@@ -194,10 +194,23 @@ async function startWhatsApp() {
 
     // Ensure auth directory exists (critical for Docker)
     const authDir = path.resolve(__dirname, 'auth');
-    const fs = require('fs');
+
+    // Create auth directory with proper permissions
     if (!fs.existsSync(authDir)) {
-        fs.mkdirSync(authDir, { recursive: true });
+        fs.mkdirSync(authDir, { recursive: true, mode: 0o755 });
         logger.info('SYSTEM', 'Created auth directory');
+    }
+
+    // Verify write permissions by creating test file
+    try {
+        const testFile = path.join(authDir, '.write-test');
+        fs.writeFileSync(testFile, 'test');
+        fs.unlinkSync(testFile);
+        logger.info('SYSTEM', '✅ Auth directory writable');
+    } catch (writeErr) {
+        logger.error('SYSTEM', `❌ Auth directory not writable: ${writeErr.message}`);
+        logger.error('SYSTEM', 'Make sure ./auth directory exists on host and has proper permissions');
+        process.exit(1);
     }
 
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
@@ -208,7 +221,6 @@ async function startWhatsApp() {
     sock = makeWASocket({
         version,
         auth: state,
-        printQRInTerminal: true,
         qrTimeout: 60 * 1000,
         logger: require('pino')({ level: 'error' })
     });

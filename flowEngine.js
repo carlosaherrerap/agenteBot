@@ -516,6 +516,31 @@ async function runFlow(incomingText, fromJid) {
                 session.menuLevel = 'main';
                 return getMenuOnly(name);
             }
+
+            // Si no es un número, buscar en FAQs
+            if (isNaN(option) && isQuery(text)) {
+                const faq = await sql.searchFAQ(text);
+
+                if (faq) {
+                    // FAQ encontrado - responder con FAQ + opción de asesor
+                    return [
+                        faq.respuesta,
+                        `Si deseas puedes ponerte en contacto con un asesor escribiendo tu DNI y una consulta breve.`,
+                        `Ejemplo: *"12345678, necesito saber como pagar"* 📝`,
+                        `Escribe *0* para volver al menú principal 🔙`
+                    ];
+                } else {
+                    // No hay FAQ - ofrecer asesor
+                    session.menuLevel = 'asesor_inicio';
+                    return [
+                        `Entiendo tu consulta 🤔 Para darte una respuesta más precisa, te voy a derivar con un asesor.`,
+                        `Escribe tu *DNI* y *consulta breve* en un solo mensaje.`,
+                        `Ejemplo: *"12345678, quiero reprogramar mi deuda"*`,
+                        `Escribe *0* para volver al menú principal 🔙`
+                    ];
+                }
+            }
+
             return templates.invalidDebtOption();
         }
         // VOLVER AL MENÚ (0 desde cualquier submenú)
