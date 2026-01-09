@@ -182,7 +182,7 @@ function getMenuOnly(name) {
     return Array.isArray(messages) ? messages.join('\n\n') : messages;
 }
 function getDeudaSubmenu() {
-    const messages = templates.debtDetailsMenu();
+    const messages = templates.debtSubmenu();
     return Array.isArray(messages) ? messages.join('\n\n') : messages;
 }
 
