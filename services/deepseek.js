@@ -5,6 +5,10 @@
 const axios = require('axios');
 require('dotenv').config();
 const logger = require('../utils/logger');
+// AI_PARTICIPATION controla el nivel de participación de la IA:
+//   - 'full': la IA responde a todas las consultas.
+//   - 'fallback': la IA solo se usa como respaldo cuando no hay respuesta directa o ocurre un error.
+const AI_PARTICIPATION = process.env.AI_PARTICIPATION || 'fallback';
 
 // Timeout for AI requests (15 seconds for cloud, 30 for local)
 const CLOUD_TIMEOUT = 15000;

@@ -236,7 +236,7 @@ async function startWhatsApp() {
                 clearAuth();
                 setTimeout(() => startWhatsApp(), 2000);
             } else if (shouldReconnect) {
-                logger.info('WHATSAPP', `Reconectando en 3 segundos...`);
+                logger.info('WHATSAPP', `Reconectando en 3 segundos... (statusCode=${statusCode})`);
                 setTimeout(() => startWhatsApp(), 3000);
             }
         } else if (connection === 'open') {
