@@ -352,6 +352,13 @@ async function runFlow(incomingText, fromJid) {
         const client = session.cachedClient;
         const cachedDni = client.DOCUMENTO || client.NRO_DNI || '';
 
+        // ==================== RETORNO AL MENÚ PRINCIPAL (0) ====================
+        // Desde cualquier submenú, el "0" siempre regresa al menú principal
+        if (text === '0') {
+            session.menuLevel = 'main';
+            return getMainMenu(name);
+        }
+
         // SEGURIDAD: Si intenta ingresar OTRO documento (diferente al que está en caché)
         if (PURE_NUMBER_REGEX.test(text) && VALID_DOCUMENT_REGEX.test(text)) {
             // Permitir si es el mismo DNI que está en caché
@@ -423,7 +430,7 @@ async function runFlow(incomingText, fromJid) {
                     const saldoCapital = parseFloat(client.SALDO_CAPITAL || 0).toFixed(2);
                     return [
                         `${name}, tu *Saldo Capital* (préstamo total) es: *S/ ${saldoCapital}* 💰`,
-                        `Escribe *0* para volver al menú principal 🔙`
+                        `Escribe *0* para volver al menú principal 👈`
                     ];
                 }
 
@@ -447,12 +454,12 @@ async function runFlow(incomingText, fromJid) {
                         return [
                             `${name}, tienes *${diasAtraso} días de atraso* ⏰`,
                             `Tu fecha de pago fue el *${fechaFormateada}*. Te recomendamos regularizar tu situación lo antes posible.`,
-                            `Escribe *0* para volver al menú principal 🔙`
+                            `Escribe *0* para volver al menú principal 👈`
                         ];
                     } else {
                         return [
                             `${name}, ¡estás al día! 🎉 No tienes días de atraso.`,
-                            `Escribe *0* para volver al menú principal 🔙`
+                            `Escribe *0* para volver al menú principal 👈`
                         ];
                     }
                 }
@@ -489,13 +496,14 @@ async function runFlow(incomingText, fromJid) {
                             `Entiendo tu consulta 🤔 Para darte una respuesta más precisa, te voy a derivar con un asesor personalizado.`,
                             `Por favor, escribe tu *DNI* y tu *consulta breve* en un solo mensaje.`,
                             `Ejemplo: *12345678, quiero reprogramar mi cuota*`,
-                            `Escribe *0* para volver al menú principal 🔙`
+                            `Escribe *0* para volver al menú principal 👈`
                         ];
                     }
                 }
-                return templates.invalidMenuOption();
+                // Preguntas fuera de contexto - mostrar menú
+                return templates.outOfContextQuery();
             }
-            return templates.invalidMenuOption();
+            return templates.outOfContextQuery();
         }
         // SUBMENÚ DEUDA
         if (session.menuLevel === 'deuda_submenu') {
@@ -527,7 +535,7 @@ async function runFlow(incomingText, fromJid) {
                         faq.respuesta,
                         `Si deseas puedes ponerte en contacto con un asesor escribiendo tu DNI y una consulta breve.`,
                         `Ejemplo: *"12345678, necesito saber como pagar"* 📝`,
-                        `Escribe *0* para volver al menú principal 🔙`
+                        `Escribe *0* para volver al menú principal 👈`
                     ];
                 } else {
                     // No hay FAQ - ofrecer asesor
@@ -536,7 +544,7 @@ async function runFlow(incomingText, fromJid) {
                         `Entiendo tu consulta 🤔 Para darte una respuesta más precisa, te voy a derivar con un asesor.`,
                         `Escribe tu *DNI* y *consulta breve* en un solo mensaje.`,
                         `Ejemplo: *"12345678, quiero reprogramar mi deuda"*`,
-                        `Escribe *0* para volver al menú principal 🔙`
+                        `Escribe *0* para volver al menú principal 👈`
                     ];
                 }
             }

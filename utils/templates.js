@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Message Templates for InformaPeru Chatbot - Max
  * Bot: Max - Asistente Virtual de InformaPeru/Caja Huancayo
  *
@@ -13,10 +13,11 @@
 // Configuración de frecuencia de emojis (0.0 = nunca, 1.0 = siempre)
 const EMOJI_FREQUENCY = 0.7; // 70% de las veces incluir emojis
 
+// Emojis para saludos de Max
+const GREETING_EMOJIS = ['🧑‍🦱', '🤖', '📲', '😏', '😊', '😀', '😁', '🙂', '🤞', '🖐️', '👋', '🤟'];
+
 /**
  * Selecciona aleatoriamente una variante de un array
- * @param {Array} variants - Array de variantes
- * @returns {string} Una variante aleatoria
  */
 function pickRandom(variants) {
     return variants[Math.floor(Math.random() * variants.length)];
@@ -24,27 +25,31 @@ function pickRandom(variants) {
 
 /**
  * Decide si incluir emoji basado en frecuencia
- * @param {string} withEmoji - Versión con emoji
- * @param {string} withoutEmoji - Versión sin emoji
- * @returns {string} Una de las dos versiones
  */
 function maybeEmoji(withEmoji, withoutEmoji) {
     return Math.random() < EMOJI_FREQUENCY ? withEmoji : withoutEmoji;
+}
+
+/**
+ * Obtiene un emoji aleatorio para saludos
+ */
+function getGreetingEmoji() {
+    return pickRandom(GREETING_EMOJIS);
 }
 
 
 const templates = {
     // ==================== FASE 1: SALUDO ====================
     /**
-     * Saludo inicial - FASE 1
-     * Se muestra al inicio de toda conversación (CON VARIACIONES)
+     * Saludo inicial - FASE 1 (CON VARIACIONES)
      */
     greetingPhase1() {
+        const emoji = getGreetingEmoji();
         const saludos = [
-            `Hola, Soy Max ${maybeEmoji('😊', '')} Tu asistente virtual de InformaPeru${maybeEmoji('🤖', '')}`,
-            `Hola! Soy Max, tu asistente de InformaPeru${maybeEmoji(' 👋', '')}`,
-            `Bienvenido a InformaPeru${maybeEmoji(' 🏦', '')} Soy Max, tu asistente virtual`,
-            `Hola! Te saluda Max de InformaPeru${maybeEmoji(' 😊', '')}`
+            `Hola, Soy Max ${emoji} Tu asistente virtual de InformaPeru`,
+            `Hola! Soy Max ${emoji} tu asistente de InformaPeru`,
+            `Bienvenido a InformaPeru ${emoji} Soy Max, tu asistente virtual`,
+            `Hola! Te saluda Max de InformaPeru ${emoji}`
         ];
         const solicitudes = [
             `Para ayudarte, necesito tu *DNI*, *RUC* o *Número de cuenta*`,
@@ -58,10 +63,11 @@ const templates = {
      * Mensaje cuando el cliente da un saludo simple
      */
     greetingNeutral() {
+        const emoji = getGreetingEmoji();
         const saludos = [
-            `Hola! Soy Max${maybeEmoji(' 😊', '')} Tu asistente virtual de InformaPeru`,
-            `Buen día! Soy Max, tu asistente de InformaPeru${maybeEmoji(' 👋', '')}`,
-            `Hola! Te saluda Max de InformaPeru${maybeEmoji(' 🤖', '')}`
+            `Hola! Soy Max ${emoji} Tu asistente virtual de InformaPeru`,
+            `Buen día! Soy Max ${emoji} tu asistente de InformaPeru`,
+            `Hola! Te saluda Max de InformaPeru ${emoji}`
         ];
         const solicitudes = [
             `Para ayudarte con tu consulta, necesito tu *DNI*, *RUC* o *Número de cuenta*`,
@@ -85,166 +91,166 @@ const templates = {
     },
 
     /**
-     * Error de longitud de número (no es 8, 11 o 18 dígitos)
+     * Error de longitud de número
      */
     invalidDocumentLength() {
-        return `🪪Por favor ingresa un número de documento correcto(8 dígitos) o cuenta(18 dígitos)`;
+        return `Por favor ingresa un número de documento correcto (8 dígitos) o cuenta (18 dígitos)`;
     },
 
     /**
      * Número inválido - mensaje alternativo
      */
-    invalidNumberLength() {
-        return `🪪Por favor ingresa un número de documento correcto(8 dígitos) o cuenta(18 dígitos)`;
-    },
-
-    /**
-     * Datos incorrectos cuando no es una consulta válida
-     */
-    invalidDataNotQuery() {
+    invalidData() {
         return `Datos incorrectos, asegurate de ingresar un número de 8 dígitos para *DNI*, 11 para *RUC* o 18 para *cuenta*`;
     },
 
     /**
-     * Sugerencia para carnet de extranjería
+     * El cliente no es una consulta ni respuesta válida
+     */
+    invalidDataNotQuery() {
+        return `Por favor, escríbeme tu *DNI*, *RUC* o *cuenta* para poder ayudarte`;
+    },
+
+    /**
+     * Sugerencia para extranjeros
      */
     foreignDocumentSuggestion() {
-        return `Comprendo tu situación, para ello te puedo sugerir ingresar usando tu *NÚMERO DE CUENTA* o acercarte a las oficinas de Caja Huancayo para que te brinden un ID de sesión por WhatsApp.`;
+        return `Si eres extranjero, por favor escribe tu *carnet de extranjería* o *número de cuenta* para poder ayudarte`;
     },
 
     /**
-     * No se tiene información sobre la consulta
-     */
-    noInfoAvailable() {
-        return `No tengo información o permisos sobre ello, te recomiendo consultarlo con un asesor.\nPara derivarte con un asesor, necesito tu DNI y tu consulta en un solo mensaje.\nEjemplo: "75747335, horarios de atención"`;
-    },
-
-    /**
-     * Cliente no encontrado en base de datos
+     * Cliente no encontrado en la base de datos
      */
     clientNotFound() {
-        return `😿Lo sentimos. No hemos encontrado información de usted. Intente con otro documento`;
+        const variantes = [
+            `No encontramos información con ese documento. Por favor verifica e intenta nuevamente.`,
+            `No encontré registros con ese número. Asegúrate de que esté correcto.`,
+            `El documento ingresado no está registrado. Por favor, verifica y vuelve a intentar.`
+        ];
+        return pickRandom(variantes);
     },
 
     /**
-     * Bloqueo por demasiados intentos (4 intentos fallidos)
+     * Demasiados intentos fallidos
      */
     tooManyAttempts() {
-        return `⚠️Hemos detectado múltiples intentos de verificación con diferentes números de documento.\nEsta acción infringe nuestras políticas de seguridad y protección de datos. Por su seguridad y la de terceros, le informamos que no podrá realizar nuevas identificaciones en los próximos 30 minutos.`;
+        return `Has superado el número máximo de intentos. Por favor, intenta más tarde o comunícate con nosotros al 064-481000.`;
     },
 
     /**
-     * Seguridad - usuario intenta consultar otro documento
+     * Sin información disponible para la consulta
      */
-    securityBlockOtherDocument() {
-        return `⚠️Usted no tiene permiso para consultar información de otra persona`;
-    },
-
-    // New template for phase 2 security block (same message)
-    securityBlockOtherDocumentPhase2() {
-        return `⚠️Usted no tiene permiso para consultar información de otra persona`;
-    },
-
-    /**
-     * Alias para compatibilidad
-     */
-    securityLock() {
-        return `⚠️Usted no tiene permiso para consultar información de otra persona`;
+    noInfoAvailable() {
+        return [
+            `No tengo información o permisos sobre ello, te recomiendo consultarlo con un asesor.`,
+            `Para derivarte con un asesor, necesito tu DNI y tu consulta en un solo mensaje.`,
+            `Ejemplo: *"75747335, horarios de atención"*`
+        ];
     },
 
     // ==================== FASE 3: MENÚ CONTEXTUAL ====================
     /**
-     * Menú principal con nombre del cliente
-     * @param {string} name - Nombre del cliente
+     * Menú principal con nombre del cliente (CON VARIACIONES)
      */
     mainMenuWithName(name) {
+        const intros = [
+            `*${name.toUpperCase()}* ${maybeEmoji('😊', '')} Para continuar escribe un número de la lista o escribe brevemente tu consulta`,
+            `Hola *${name.toUpperCase()}* ${maybeEmoji('👋', '')} Elige una opción o escríbeme tu consulta`,
+            `*${name.toUpperCase()}* ${maybeEmoji('🙂', '')} Para atenderte, selecciona una opción o cuéntame tu consulta`
+        ];
         return [
-            `*${name.toUpperCase()}* 😊 Para continuar con la atención escribe un número de la lista o escribe brevemente tu consulta(por ejm: Deseo reprogramar mi deuda)`,
+            pickRandom(intros),
             `1️⃣ Detalles deuda\n2️⃣ Oficinas cercanas\n3️⃣ Actualizar teléfono\n4️⃣ Comunicarse con un asesor`
         ];
     },
 
     /**
-     * Menú principal sin mensaje de bienvenida (para regresar)
-     * @param {string} name - Nombre del cliente
+     * Solo las opciones del menú
      */
     menuOptions(name) {
         return [
-            `*${name.toUpperCase()}* 😊 Para continuar con la atención escribe un número de la lista`,
+            `*${name.toUpperCase()}* ${maybeEmoji('😊', '')} Elige una opción:`,
             `1️⃣ Detalles deuda\n2️⃣ Oficinas cercanas\n3️⃣ Actualizar teléfono\n4️⃣ Comunicarse con un asesor`
         ];
     },
 
     /**
-     * Alias para greetingWithName para compatibilidad
+     * Sub-menú de deuda
      */
-    greetingWithName(name) {
-        return [
-            `*${name.toUpperCase()}* 😊 Para continuar con la atención escribe un número de la lista o escribe brevemente tu consulta(por ejm: Deseo reprogramar mi deuda)`,
-            `1️⃣ Detalles deuda\n2️⃣ Oficinas cercanas\n3️⃣ Actualizar teléfono\n4️⃣ Comunicarse con un asesor`
-        ];
-    },
-
-    /**
-     * Submenú de detalles de deuda
-     */
-    debtDetailsMenu() {
-        return [
-            `1️⃣ Saldo Capital\n2️⃣ Cuota Pendiente\n3️⃣ Días de Atraso\n4️⃣ Regresar al menú anterior`
-        ];
+    debtSubmenu() {
+        return `1️⃣ Saldo Capital\n2️⃣ Cuota Pendiente\n3️⃣ Días de Atraso\n4️⃣ Regresar al menú anterior`;
     },
 
     /**
      * Saldo Capital
-     * @param {string|number} amount - Monto del saldo capital
      */
-    debtSaldoCapital(amount) {
-        return `💰 Tu Saldo Capital es: S/ ${amount}`;
+    debtSaldoCapital(saldo) {
+        return [
+            `${maybeEmoji('💰', '')} Tu Saldo Capital es: S/ ${saldo}`,
+            `Escribe *0* para volver al menú principal 👈`
+        ];
     },
 
     /**
      * Cuota Pendiente
-     * @param {string|number} amount - Monto de la cuota pendiente
      */
-    debtCuotaPendiente(amount) {
-        return `📅 Tu Cuota Pendiente es: S/ ${amount}`;
+    debtCuotaPendiente(cuota) {
+        return [
+            `${maybeEmoji('📅', '')} Tu Cuota Pendiente es: S/ ${cuota}`,
+            `Escribe *0* para volver al menú principal 👈`
+        ];
     },
 
     /**
      * Días de Atraso
-     * @param {string|number} days - Número de días de atraso
      */
-    debtDiasAtraso(days) {
-        return `⏰ Tienes ${days} días de atraso.`;
-    },
-
-    /**
-     * Información de oficinas - Caja Huancayo
-     */
-    officesInfo() {
+    debtDiasAtraso(dias) {
+        if (dias > 0) {
+            return [
+                `${maybeEmoji('⏰', '')} Tienes *${dias} días de atraso*`,
+                `Te recomendamos regularizar tu situación lo antes posible.`,
+                `Escribe *0* para volver al menú principal 👈`
+            ];
+        }
         return [
-            `📍 *Oficinas Caja Huancayo*`,
-            `🏢 *Lima - San Isidro*\n   Av. Javier Prado Este 123\n   Lun-Vie 9:00am - 6:00pm\n\n🏢 *Lima - Miraflores*\n   Av. Larco 456\n   Lun-Vie 9:00am - 6:00pm`,
-            `🏢 *Huancayo - Centro*\n   Jr. Real 789, Plaza Constitución\n   Lun-Sab 8:00am - 6:00pm\n\n🏢 *Huancayo - El Tambo*\n   Av. Huancavelica 321\n   Lun-Sab 8:00am - 6:00pm`,
-            `🏢 *Junín - Tarma*\n   Jr. Lima 555\n   Lun-Vie 9:00am - 5:00pm\n\n📞 Central: 01-XXX-XXXX\n\nEscribe 0 para volver al menú principal 👈`
+            `${maybeEmoji('🎉', '')} ¡Estás al día! No tienes días de atraso.`,
+            `Escribe *0* para volver al menú principal 👈`
         ];
     },
 
     /**
-     * Actualizar teléfono - servicio no disponible
+     * Opción de deuda inválida
      */
-    updatePhoneUnavailable() {
-        return `⚠️ Servicio aún no disponible.\nPor favor, acércate a una de nuestras oficinas para actualizar tu número de teléfono.`;
+    invalidDebtOption() {
+        return `Por favor, selecciona una opción válida (1, 2, 3, 4)`;
     },
 
     /**
-     * Alias para compatibilidad
+     * Información de oficinas
+     */
+    officesInfo() {
+        return [
+            `📍 *Oficinas InformaPeru - Caja Huancayo*\n\n*Huancayo Centro:*\nJr. Real 789, Plaza Constitución\nLun-Sab: 8:00am - 6:00pm\n\n*El Tambo:*\nAv. Huancavelica 321\nLun-Sab: 8:00am - 6:00pm\n\n*Junín - Tarma:*\nJr. Lima 555\nLun-Vie: 9:00am - 5:00pm`,
+            `📞 *Central telefónica:* 064-481000`,
+            `Escribe *0* para volver al menú principal 👈`
+        ];
+    },
+
+    /**
+     * Solicitud de actualización de teléfono
      */
     updatePhoneRequest() {
         return [
             `⚠️ Servicio aún no disponible.\nPor favor, acércate a una de nuestras oficinas para actualizar tu número de teléfono.`,
-            `Escribe *0* para volver al menú principal 🔙`
+            `Escribe *0* para volver al menú principal 👈`
         ];
+    },
+
+    /**
+     * Servicio no disponible para actualizar teléfono
+     */
+    updatePhoneUnavailable() {
+        return `⚠️ Servicio aún no disponible.\nPor favor, acércate a una de nuestras oficinas para actualizar tu número de teléfono.`;
     },
 
     /**
@@ -254,7 +260,7 @@ const templates = {
         return [
             `Para derivarte con un asesor, necesito tu DNI y tu consulta en un solo mensaje.`,
             `Ejemplo: *"12345678, quiero reprogramar mi deuda"*`,
-            `Escribe *0* para volver al menú principal 🔙`
+            `Escribe *0* para volver al menú principal 👈`
         ];
     },
 
@@ -270,13 +276,13 @@ const templates = {
      */
     advisorTransferConfirm() {
         return [
-            `Listo ${maybeEmoji('✅', '')}\\nSe te está derivando con un asesor personalizado.\\n\\n${maybeEmoji('⏳', '')} Te contactaremos en horario de oficina.`,
-            `Escribe *0* para regresar al menú principal ${maybeEmoji('🔙', '')}`
+            `Listo ${maybeEmoji('✅', '')}\nSe te está derivando con un asesor personalizado.\n\n${maybeEmoji('⏳', '')} Te contactaremos en horario de oficina.`,
+            `Escribe *0* para regresar al menú principal 👈`
         ];
     },
 
     /**
-     * Confirmación de derivación a asesor - Variante (para FASE 2 cuando ya dan DNI+consulta)
+     * Confirmación de derivación a asesor - Variante
      */
     advisorTransferConfirmVariant() {
         const confirmaciones = [
@@ -297,7 +303,6 @@ const templates = {
 
     /**
      * Groserías o insultos detectados
-     * Respuesta amable para calmar al usuario
      */
     profanityDetected() {
         return [
@@ -310,42 +315,45 @@ const templates = {
      * Opción de menú inválida
      */
     invalidMenuOption() {
-        return `Opción inválida, por favor elige un número(por ejemplo: 4)`;
+        return `Opción inválida, por favor elige un número (por ejemplo: 4)`;
     },
 
     /**
-     * Opción inválida en submenú de deuda
-     */
-    invalidDebtOption() {
-        return `Por favor, selecciona una opción válida (1, 2, 3, 4)`;
-    },
-
-    /**
-     * Opción inválida - sugerir volver al menú
+     * Opción inválida - volver al menú
      */
     invalidOptionGoBack() {
-        return `Opción no válida. Escribe *0* para volver al menú principal 🔙`;
+        return `Opción no válida. Escribe *0* para volver al menú principal 👈`;
     },
 
     /**
-     * Error fallback
+     * Bloqueo de seguridad por intentar consultar otro documento en FASE 3
+     */
+    securityBlockOtherDocument() {
+        return `⚠️Usted no tiene permiso para consultar información de otra persona`;
+    },
+
+    /**
+     * Bloqueo de seguridad en FASE 2
+     */
+    securityBlockOtherDocumentPhase2() {
+        return `⚠️Solo puedes consultar información con tu propio documento`;
+    },
+
+    /**
+     * Error genérico - fallback
      */
     errorFallback() {
-        return `Lo siento, estoy experimentando dificultades técnicas 😅\nPor favor, intenta de nuevo o escribe *"asesor"* para comunicarte con un representante.`;
+        return `Ocurrió un error. Por favor, intenta nuevamente o comunícate con nosotros al 064-481000.`;
     },
 
     /**
-     * Solo información de deuda disponible
+     * Consulta fuera de contexto - para preguntas que no tienen que ver con cobranzas
      */
-    onlyDebtInfo() {
-        return `Solo puedo brindarte información referente a tu deuda y orientarte a pagarlas.\n¡Gracias! 😊`;
-    },
-
-    /**
-     * Consulta sin documento - alias para compatibilidad
-     */
-    queryWithoutDocument() {
-        return `Para ayudarte con tu consulta, necesito tu *DNI*, *RUC* o *Número de cuenta.*`;
+    outOfContextQuery() {
+        return [
+            `No pude entenderte 😞 Para ayudarte, puedes elegir un número:`,
+            `1️⃣ Detalles deuda\n2️⃣ Oficinas cercanas\n3️⃣ Actualizar teléfono\n4️⃣ Comunicarse con un asesor`
+        ];
     }
 };
 
