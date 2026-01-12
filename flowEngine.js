@@ -167,11 +167,9 @@ const FOREIGN_DOC_REGEX = /(carnet|extranjero|extranjeria|no\s*soy\s*de|soy\s*ex
 const NOT_QUERY_REGEX = /^(no|no\s*gracias|ah[ií]\s*n[o]?m[as]?s?|voy\s*a?\s*dar\s*despu[eé]s|luego|ya|ok|bueno)$/i;
 const EXTRACT_NUMBERS_REGEX = /\d+/g;
 const DOC_REFERENCE_REGEX = /(este\s*es\s*mi|mi\s*(dni|ruc|carnet|documento)|es\s*de\s*mi|no\s*es\s*mio|no\s*es\s*m[ií]o)/i;
-const ADVISOR_REGEX = /(asesor|humano|hablar\s*con|agente|comunicarme|ayuda|persona\s*real)/i;
-
-// Profanity and insult detection - common Spanish insults and profanity
+const ADVISOR_REGEX = /(asesor|humano|hablar\s*con|agente|comunicarme|\bayuda\b|persona\s*real)/i;
 const PROFANITY_REGEX = /(mierda|chucha|carajo|puta|idiota|estupid[oa]|imbecil|imbécil|pendej[oa]|huevon|huevón|cojud[oa]|maric[oó]n|cabr[oó]n|chinga|verga|cagar|concha|cojones|maldito|maldita|inutil|inútil|basura|porquer[ií]a|asquer[oa]|odio|muere|morir|hijo\s*de|hdp|ctm|ptm|csm|webón|webada|csmr|conchatumadre|malparido|gonorrea|hp)/i;
-const GRATITUDE_REGEX = /^(gracias|muchas\s*gracias|agradezco|ok\s*gracias|entendido|ya\s*entend[ií]|vale\s*gracias|listo\s*gracias|excelente|perfecto|muy\s*amable)$/i;
+const GRATITUDE_REGEX = /(gracias|agradezco|agradecido|muy\s*amable|excelente|perfecto|entendido|ya\s*entend[ií]|vale|listo)/i;
 
 // ==================== MENU TEMPLATES ====================
 function getMainMenu(name) {
