@@ -590,7 +590,8 @@ process.on('SIGINT', async () => {
     console.log('\n');
     logger.info('SYSTEM', 'Cerrando servidor...');
     if (sock) {
-        sock.logout().catch(() => { });
+        // NO usar logout() aquí, ya que invalida la sesión en el celular.
+        // Solo cerramos la conexión (socket).
         sock.end();
     }
     server.close(() => {
