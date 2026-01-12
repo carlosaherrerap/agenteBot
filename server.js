@@ -414,6 +414,16 @@ app.get('/api/status', (req, res) => {
     });
 });
 
+// Get statistics for dashboard
+app.get('/api/stats', async (req, res) => {
+    try {
+        const stats = await sql.getStats();
+        res.json(stats);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Get connection state for frontend
 app.get('/api/connection-status', (req, res) => {
     res.json({

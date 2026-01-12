@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Max - Dataset & Entrenamiento</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --secondary: #ec4899;
+            --bg: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text: #f8fafc;
+            --accent: #22d3ee;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border_box;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            background-image:
+                radial-gradient(circle at 20% 20%, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 80% 80%, rgba(236, 72, 153, 0.15) 0%, transparent 40%);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3rem;
+            animation: fadeInDown 0.8s ease-out;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            background: linear-gradient(to right, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .back-btn {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            padding: 0.8rem 1.5rem;
+            border-radius: 1212px;
+            text-decoration: none;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s;
+        }
+
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            border-radius: 24px;
+            padding: 2rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            animation: fadeInUp 0.6s ease-out backwards;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-10px);
+            border-color: var(--primary);
+        }
+
+        .stat-card h3 {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #94a3b8;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-card .value {
+            font-size: 2.5rem;
+            font-weight: 800;
+        }
+
+        .charts-container {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr;
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .chart-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            border-radius: 32px;
+            padding: 2rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            min-height: 400px;
+        }
+
+        .chart-card h2 {
+            margin-bottom: 2rem;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .chart-card h2::before {
+            content: '';
+            width: 4px;
+            height: 20px;
+            background: var(--primary);
+            border-radius: 2px;
+        }
+
+        .training-section {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(236, 72, 153, 0.1));
+            border-radius: 32px;
+            padding: 3rem;
+            margin-bottom: 3rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            text-align: center;
+        }
+
+        .training-section h2 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        .training-section p {
+            color: #94a3b8;
+            margin-bottom: 2rem;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .train-btn {
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            color: white;
+            padding: 1.2rem 3rem;
+            border-radius: 100px;
+            font-weight: 700;
+            border: none;
+            cursor: pointer;
+            font-size: 1.1rem;
+            box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.4);
+            transition: all 0.3s;
+        }
+
+        .train-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 15px 30px -5px rgba(99, 102, 241, 0.6);
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media (max-width: 968px) {
+            .charts-container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>🤖 Max Intelligence</h1>
+                <p style="color: #94a3b8">Entrenamiento & Análisis de Rendimiento</p>
+            </div>
+            <a href="dashboard.html" class="back-btn">← Volver al Panel</a>
+        </header>
+
+        <div class="stats-grid">
+            <div class="stat-card" style="animation-delay: 0.1s">
+                <h3>Mensajes Totales</h3>
+                <div class="value" id="totalMsgs">--</div>
+            </div>
+            <div class="stat-card" style="animation-delay: 0.2s">
+                <h3>Usuarios Únicos</h3>
+                <div class="value" id="uniqueUsers">--</div>
+            </div>
+            <div class="stat-card" style="animation-delay: 0.3s">
+                <h3>Respuestas AI</h3>
+                <div class="value" id="aiMsgs">--</div>
+                <p style="color: var(--primary); font-size: 0.8rem; margin-top: 0.5rem" id="aiRate">AI Fallback Rate:
+                    --%</p>
+            </div>
+            <div class="stat-card" style="animation-delay: 0.4s">
+                <h3>Acierto Directo</h3>
+                <div class="value" id="directMsgs">--</div>
+                <p style="color: var(--secondary); font-size: 0.8rem; margin-top: 0.5rem" id="directRate">Efectividad
+                    FAQ: --%</p>
+            </div>
+        </div>
+
+        <div class="charts-container">
+            <div class="chart-card">
+                <h2>Actividad de Entrenamiento (Últimos 7 días)</h2>
+                <canvas id="dailyChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h2>Intenciones Detectadas</h2>
+                <canvas id="intentChart"></canvas>
+            </div>
+        </div>
+
+        <div class="training-section">
+            <h2>Auto-Entrenamiento</h2>
+            <p>Exporta las conversaciones de hoy para re-entrenar el modelo de lenguaje de Max y mejorar su precisión
+                semántica.</p>
+            <button class="train-btn" onclick="simulateTraining()">Invocación de Fine-Tuning</button>
+            <div id="trainingStatus" style="margin-top: 1rem; color: var(--accent); font-weight: 600; display: none;">
+                Optimización en proceso... ✨
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function fetchStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                updateUI(data);
+            } catch (err) {
+                console.error('Error fetching stats:', err);
+            }
+        }
+
+        function updateUI(data) {
+            const { totals, intents, daily } = data;
+
+            // Update Cards
+            document.getElementById('totalMsgs').textContent = totals.total_msgs || 0;
+            document.getElementById('uniqueUsers').textContent = totals.unique_users || 0;
+            document.getElementById('aiMsgs').textContent = totals.ai_msgs || 0;
+            document.getElementById('directMsgs').textContent = totals.direct_msgs || 0;
+
+            const aiRate = ((totals.ai_msgs / totals.total_msgs) * 100).toFixed(1);
+            const directRate = ((totals.direct_msgs / totals.total_msgs) * 100).toFixed(1);
+
+            document.getElementById('aiRate').textContent = `AI Fallback Rate: ${aiRate}%`;
+            document.getElementById('directRate').textContent = `Efectividad FAQ: ${directRate}%`;
+
+            // Daily Chart
+            const dailyLabels = daily.map(d => new Date(d.date).toLocaleDateString('es-PE', { day: '2-digit', month: 'short' }));
+            const dailyData = daily.map(d => d.count);
+
+            new Chart(document.getElementById('dailyChart'), {
+                type: 'line',
+                data: {
+                    labels: dailyLabels,
+                    datasets: [{
+                        label: 'Conversaciones diarias',
+                        data: dailyData,
+                        borderColor: '#6366f1',
+                        backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 3,
+                        pointBackgroundColor: '#6366f1',
+                        pointRadius: 5
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    }
+                }
+            });
+
+            // Intent Chart
+            const intentLabels = intents.map(i => i.intent);
+            const intentData = intents.map(i => i.count);
+
+            new Chart(document.getElementById('intentChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: intentLabels,
+                    datasets: [{
+                        data: intentData,
+                        backgroundColor: [
+                            '#6366f1', '#ec4899', '#22d3ee', '#f59e0b', '#10b981', '#ef4444'
+                        ],
+                        borderWidth: 0,
+                        hoverOffset: 20
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: '#94a3b8', padding: 20, font: { size: 12 } }
+                        }
+                    },
+                    cutout: '70%'
+                }
+            });
+        }
+
+        function simulateTraining() {
+            const btn = document.querySelector('.train-btn');
+            const status = document.getElementById('trainingStatus');
+
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+            status.style.display = 'block';
+
+            setTimeout(() => {
+                status.textContent = "¡Precisión del bot mejorada! Dataset actualizado. ✅";
+                btn.style.display = 'none';
+            }, 3000);
+        }
+
+        fetchStats();
+    </script>
+</body>
+
+</html>

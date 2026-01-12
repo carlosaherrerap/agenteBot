@@ -171,6 +171,7 @@ const ADVISOR_REGEX = /(asesor|humano|hablar\s*con|agente|comunicarme|ayuda|pers
 
 // Profanity and insult detection - common Spanish insults and profanity
 const PROFANITY_REGEX = /(mierda|chucha|carajo|puta|idiota|estupid[oa]|imbecil|imbécil|pendej[oa]|huevon|huevón|cojud[oa]|maric[oó]n|cabr[oó]n|chinga|verga|cagar|concha|cojones|maldito|maldita|inutil|inútil|basura|porquer[ií]a|asquer[oa]|odio|muere|morir|hijo\s*de|hdp|ctm|ptm|csm|webón|webada|csmr|conchatumadre|malparido|gonorrea|hp)/i;
+const GRATITUDE_REGEX = /^(gracias|muchas\s*gracias|agradezco|ok\s*gracias|entendido|ya\s*entend[ií]|vale\s*gracias|listo\s*gracias|excelente|perfecto|muy\s*amable)$/i;
 
 // ==================== MENU TEMPLATES ====================
 function getMainMenu(name) {
@@ -245,6 +246,13 @@ async function runFlow(incomingText, fromJid) {
     if (PROFANITY_REGEX.test(lowText)) {
         console.log(`⚠️ [${fromJid}] Groserías detectadas en: "${text}"`);
         return templates.profanityDetected();
+    }
+
+    // ==================== DETECCIÓN DE GRATITUD ====================
+    if (GRATITUDE_REGEX.test(lowText)) {
+        const name = session.cachedClient ? getClientName(session.cachedClient) : 'Cliente';
+        console.log(`✨ [${fromJid}] Gratitud detectada`);
+        return templates.gratitudeResponse(name);
     }
 
     // ==================== FASE 1: SALUDO ====================
@@ -373,8 +381,10 @@ async function runFlow(incomingText, fromJid) {
         if (session.menuLevel === 'main') {
             const option = parseInt(text);
             if (option === 1) {
-                session.menuLevel = 'deuda_submenu';
-                return getDeudaSubmenu();
+                const saldoCapital = parseFloat(client.SALDO_CAPITAL || 0).toFixed(2);
+                const saldoCuota = parseFloat(client.SALDO_CUOTA || 0).toFixed(2);
+                const diasAtraso = parseInt(client.DIAS_ATRASO || 0);
+                return templates.debtSummary(saldoCapital, saldoCuota, diasAtraso);
             }
             if (option === 2) {
                 session.menuLevel = 'oficinas';
@@ -397,8 +407,10 @@ async function runFlow(incomingText, fromJid) {
                     const extractedOption = parseInt(optionMatch[1]);
                     if (extractedOption >= 1 && extractedOption <= 4) {
                         if (extractedOption === 1) {
-                            session.menuLevel = 'deuda_submenu';
-                            return getDeudaSubmenu();
+                            const saldoCapital = parseFloat(client.SALDO_CAPITAL || 0).toFixed(2);
+                            const saldoCuota = parseFloat(client.SALDO_CUOTA || 0).toFixed(2);
+                            const diasAtraso = parseInt(client.DIAS_ATRASO || 0);
+                            return templates.debtSummary(saldoCapital, saldoCuota, diasAtraso);
                         }
                         if (extractedOption === 2) {
                             session.menuLevel = 'oficinas';
@@ -445,8 +457,10 @@ async function runFlow(incomingText, fromJid) {
 
                 // Opción 1: Deuda (detectar antes de datos específicos)
                 if (DEUDA_INTENT.test(lowText)) {
-                    session.menuLevel = 'deuda_submenu';
-                    return getDeudaSubmenu();
+                    const saldoCapital = parseFloat(client.SALDO_CAPITAL || 0).toFixed(2);
+                    const saldoCuota = parseFloat(client.SALDO_CUOTA || 0).toFixed(2);
+                    const diasAtraso = parseInt(client.DIAS_ATRASO || 0);
+                    return templates.debtSummary(saldoCapital, saldoCuota, diasAtraso);
                 }
 
                 // ==================== RESPUESTA DIRECTA CON DATOS DEL CLIENTE ====================
@@ -610,8 +624,10 @@ async function runFlow(incomingText, fromJid) {
                 session.menuLevel = 'main';
                 // Re-procesar como si estuviera en menú principal
                 if (menuOption === 1) {
-                    session.menuLevel = 'deuda_submenu';
-                    return getDeudaSubmenu();
+                    const saldoCapital = parseFloat(client.SALDO_CAPITAL || 0).toFixed(2);
+                    const saldoCuota = parseFloat(client.SALDO_CUOTA || 0).toFixed(2);
+                    const diasAtraso = parseInt(client.DIAS_ATRASO || 0);
+                    return templates.debtSummary(saldoCapital, saldoCuota, diasAtraso);
                 }
                 if (menuOption === 2) {
                     const officeMessages = templates.officesInfo();
@@ -643,8 +659,10 @@ async function runFlow(incomingText, fromJid) {
             if (menuOption >= 1 && menuOption <= 4) {
                 session.menuLevel = 'main';
                 if (menuOption === 1) {
-                    session.menuLevel = 'deuda_submenu';
-                    return getDeudaSubmenu();
+                    const saldoCapital = parseFloat(client.SALDO_CAPITAL || 0).toFixed(2);
+                    const saldoCuota = parseFloat(client.SALDO_CUOTA || 0).toFixed(2);
+                    const diasAtraso = parseInt(client.DIAS_ATRASO || 0);
+                    return templates.debtSummary(saldoCapital, saldoCuota, diasAtraso);
                 }
                 if (menuOption === 2) {
                     session.menuLevel = 'oficinas';

@@ -503,6 +503,52 @@ async function deleteFAQ(id) {
     }
 }
 
+/**
+ * Get statistics for the dashboard
+ */
+async function getStats() {
+    try {
+        const p = await getPool();
+
+        // Stats by intent (top 10)
+        const intents = await p.request().query(`
+            SELECT TOP 10 intent, COUNT(*) as count 
+            FROM Conversaciones 
+            WHERE intent IS NOT NULL
+            GROUP BY intent 
+            ORDER BY count DESC
+        `);
+
+        // Stats by day (last 7 days)
+        const daily = await p.request().query(`
+            SELECT CAST(fecha_hora AS DATE) as date, COUNT(*) as count 
+            FROM Conversaciones 
+            WHERE fecha_hora >= DATEADD(day, -7, GETDATE())
+            GROUP BY CAST(fecha_hora AS DATE)
+            ORDER BY date ASC
+        `);
+
+        // Totals
+        const totals = await p.request().query(`
+            SELECT 
+                COUNT(*) as total_msgs,
+                COUNT(DISTINCT telefono_whatsapp) as unique_users,
+                SUM(CASE WHEN intent = 'AI_RESPONSE' THEN 1 ELSE 0 END) as ai_msgs,
+                SUM(CASE WHEN intent != 'AI_RESPONSE' AND intent IS NOT NULL THEN 1 ELSE 0 END) as direct_msgs
+            FROM Conversaciones
+        `);
+
+        return {
+            intents: intents.recordset,
+            daily: daily.recordset,
+            totals: totals.recordset[0]
+        };
+    } catch (err) {
+        logger.error('SQL', 'Error obteniendo estadísticas', err);
+        return { intents: [], daily: [], totals: {} };
+    }
+}
+
 module.exports = {
     connect,
     getConnectionStatus,
@@ -521,6 +567,7 @@ module.exports = {
     addFAQ,
     updateFAQ,
     deleteFAQ,
+    getStats,
     PHONE_FIELDS,
     ESTADO_FILTRO
 };

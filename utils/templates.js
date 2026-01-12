@@ -11,10 +11,10 @@
 
 // ==================== VARIACIÓN DE RESPUESTAS ====================
 // Configuración de frecuencia de emojis (0.0 = nunca, 1.0 = siempre)
-const EMOJI_FREQUENCY = 0.7; // 70% de las veces incluir emojis
+const EMOJI_FREQUENCY = 0.8; // 70% de las veces incluir emojis
 
 // Emojis para saludos de Max
-const GREETING_EMOJIS = ['🧑‍🦱', '🤖', '📲', '😏', '😊', '😀', '😁', '🙂', '🤞', '🖐️', '👋', '🤟'];
+const GREETING_EMOJIS = ['🧑‍🦱', '🤖', '📲', '😊', '😀', '🤖', '😁', '🙂', '🤞', '🖐️', '🤖', '👋', '🤟', '🤖'];
 
 /**
  * Selecciona aleatoriamente una variante de un array
@@ -182,6 +182,21 @@ const templates = {
     },
 
     /**
+     * Resumen completo de deuda solicitado por el usuario
+     */
+    debtSummary(saldoCapital, saldoCuota, diasAtraso) {
+        return `💰Su Saldo Capital es: S/ ${saldoCapital},
+💸Próxima cuota es: S/ ${saldoCuota},
+🗓️Tiene ${diasAtraso} días de atraso.
+
+🧑‍⚖️Agradeceremos que se ponga al día para evitar interés moratorio.
+💳🤳Puedes pagar tus cuentas de Caja Huancayo en sus agencias🏬, *usando Yape(buscando "Caja Huancayo" en pagos de servicios con tu código de crédito)*, en agentes *KasNet*🏦, y através de otros bancos como *BCP, BBVA, Scotiabank e Interbank*, o en *tiendas como🏪 Tambo+.* También puedes usar la *Caja Virtual o la App móvil de Caja Huancayo* para pagos de servicios y créditos.
+
+¡Muchas gracias, que tenga buen día!
+🎆`;
+    },
+
+    /**
      * Saldo Capital
      */
     debtSaldoCapital(saldo) {
@@ -312,8 +327,11 @@ const templates = {
     },
 
     /**
-     * Opción de menú inválida
+     * Respuesta a frases de agradecimiento
      */
+    gratitudeResponse(name) {
+        return `No hay de que ${name} 😊. Estamos para ayudarte. Cuando tengas otra consulta, hazmela saber 👋`;
+    },
     invalidMenuOption() {
         return `Opción inválida, por favor elige un número (por ejemplo: 4)`;
     },
