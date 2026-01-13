@@ -160,7 +160,7 @@ const templates = {
         ];
         return [
             pickRandom(intros),
-            `1️⃣ Detalles deuda\n2️⃣ Oficinas cercanas\n3️⃣ Actualizar teléfono\n4️⃣ Comunicarse con un asesor`
+            `1️⃣ Agencias y medios de pago\n2️⃣ Comunicarse con un asesor`
         ];
     },
 
@@ -170,7 +170,7 @@ const templates = {
     menuOptions(name) {
         return [
             `*${name.toUpperCase()}* ${maybeEmoji('😊', '')} Elige una opción:`,
-            `1️⃣ Detalles deuda\n2️⃣ Oficinas cercanas\n3️⃣ Actualizar teléfono\n4️⃣ Comunicarse con un asesor`
+            `1️⃣ Agencias y medios de pago\n2️⃣ Comunicarse con un asesor`
         ];
     },
 
@@ -182,18 +182,37 @@ const templates = {
     },
 
     /**
+     * Mensaje de seguridad al identificarse
+     */
+    securityInfo() {
+        return `ℹ️Le informamos que por motivos de Seguridad y Privacidad si usted tarda 2 minutos para realizar consultas su sesión se cerrará y tendrá que volver a identificarse`;
+    },
+
+    /**
      * Resumen completo de deuda solicitado por el usuario
      */
-    debtSummary(saldoCapital, saldoCuota, diasAtraso) {
-        return `💰Su Saldo Capital es: S/ ${saldoCapital},
-💸Próxima cuota es: S/ ${saldoCuota},
+    debtSummary(clientName, saldoCapital, saldoCuota, diasAtraso) {
+        return [
+            this.debtSummaryPart1(clientName, saldoCapital, saldoCuota, diasAtraso),
+            this.debtSummaryPart2(),
+            this.debtSummaryPart3(clientName)
+        ];
+    },
+
+    debtSummaryPart1(clientName, saldoCapital, saldoCuota, diasAtraso) {
+        return `💰Su Saldo Capital es: S/ ${saldoCapital}
+💸Próxima cuota es: S/ ${saldoCuota}
 🗓️Tiene ${diasAtraso} días de atraso.
 
-🧑‍⚖️Agradeceremos que se ponga al día para evitar interés moratorio.
-💳🤳Puedes pagar tus cuentas de Caja Huancayo en sus agencias🏬, *usando Yape(buscando "Caja Huancayo" en pagos de servicios con tu código de crédito)*, en agentes *KasNet*🏦, y através de otros bancos como *BCP, BBVA, Scotiabank e Interbank*, o en *tiendas como🏪 Tambo+.* También puedes usar la *Caja Virtual o la App móvil de Caja Huancayo* para pagos de servicios y créditos.
+🧑‍⚖️Agradeceremos que se ponga al día para evitar interés moratorio.`;
+    },
 
-¡Muchas gracias, que tenga buen día!
-🎆`;
+    debtSummaryPart2() {
+        return `💳🤳Puedes pagar tus cuentas de Caja Huancayo en sus agencias🏬, *usando Yape(buscando "Caja Huancayo" en pagos de servicios con tu código de crédito)*, en agentes *KasNet*🏦, y através de otros bancos como *BCP, BBVA, Scotiabank e Interbank*, o en *tiendas como🏪 Tambo+.* También puedes usar la *Caja Virtual o la App móvil de Caja Huancayo* para pagos de servicios y créditos.`;
+    },
+
+    debtSummaryPart3(clientName) {
+        return `¡Muchas gracias ${clientName}, que tenga buen día! 🎆`;
     },
 
     /**
