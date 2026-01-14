@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     gnupg \
     apt-transport-https \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Add Microsoft GPG key and Repository (Optional but recommended for SQL tools)
