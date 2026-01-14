@@ -27,7 +27,7 @@ async function sendAdvisorEmail(dni, query) {
 
         const mailOptions = {
             from: process.env.GMAIL_USER,
-            to: 'informaperu.temprana@gmail.com',
+            to: 'carlos.herrera@informaperu.com',
             subject: `Contacto Asesor - DNI ${dni}`,
             text: `El cliente con DNI: ${dni} solicita contacto.\n\nConsulta: ${query}\n\nFecha: ${new Date().toLocaleString('es-ES', { timeZone: 'America/Lima' })}`,
             html: `

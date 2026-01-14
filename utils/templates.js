@@ -388,7 +388,7 @@ const templates = {
     outOfContextQuery() {
         return [
             `No pude entenderte 😞 Para ayudarte, puedes elegir un número:`,
-            `1️⃣ Detalles deuda\n2️⃣ Oficinas cercanas\n3️⃣ Actualizar teléfono\n4️⃣ Comunicarse con un asesor`
+            `1️⃣ Agencias y medios de pago\n2️⃣ Comunicarse con un asesor`
         ];
     }
 };
