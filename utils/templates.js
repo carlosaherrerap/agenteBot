@@ -387,7 +387,7 @@ const templates = {
      */
     outOfContextQuery() {
         return [
-            `No pude entenderte 😞 Para ayudarte, puedes elegir un número:`,
+            `No pude entenderte 😞. Recuerda que soy un Bot y estoy en proceso de mejora. Para ayudarte, puedes elegir un número:`,
             `1️⃣ Agencias y medios de pago\n2️⃣ Comunicarse con un asesor`
         ];
     }
