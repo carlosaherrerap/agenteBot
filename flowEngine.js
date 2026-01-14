@@ -14,7 +14,7 @@ const templates = require('./utils/templates');
 
 // ==================== SESSION MANAGEMENT ====================
 const sessions = new Map(); // jid -> session data
-const SESSION_TIMEOUT = 120000; // 2 minutos en milisegundos
+const SESSION_TIMEOUT = 300000; // 5 minutos en milisegundos
 const MAX_FAILED_ATTEMPTS = 4;
 const BLOCK_DURATION = 30 * 60 * 1000; // 30 minutos en milisegundos
 

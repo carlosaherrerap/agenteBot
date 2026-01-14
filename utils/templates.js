@@ -7,6 +7,7 @@
  * - An array of strings (multiple messages sent separately)
  * 
  * Response Variation System to avoid bot detection by Meta
+ * minutos
  */
 
 // ==================== VARIACIÓN DE RESPUESTAS ====================
@@ -185,7 +186,7 @@ const templates = {
      * Mensaje de seguridad al identificarse
      */
     securityInfo() {
-        return `ℹ️Le informamos que por motivos de Seguridad y Privacidad si usted tarda 2 minutos para realizar consultas su sesión se cerrará y tendrá que volver a identificarse`;
+        return `ℹ️Le informamos que por motivos de Seguridad y Privacidad si usted tarda 5 minutos para realizar consultas su sesión se cerrará y tendrá que volver a identificarse`;
     },
 
     /**
