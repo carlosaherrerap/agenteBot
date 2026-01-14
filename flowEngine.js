@@ -293,7 +293,10 @@ async function runFlow(incomingText, fromJid) {
         // Formato DNI, Consulta
         const dniQueryMatch = text.match(/(\d{8})[,\s]+(.{5,})/);
         if (dniQueryMatch) {
-            await sendAdvisorEmail(dniQueryMatch[1], dniQueryMatch[2].trim());
+            // Try to get client data if available
+            const clientResult = await getClienteByDNI(dniQueryMatch[1]);
+            const clientData = clientResult.success ? clientResult.cliente : null;
+            await sendAdvisorEmail(dniQueryMatch[1], dniQueryMatch[2].trim(), clientData);
             return templates.advisorTransferConfirmVariant();
         }
 
@@ -393,7 +396,7 @@ async function runFlow(incomingText, fromJid) {
             if (dni) {
                 const query = text.replace(dni, '').replace(/,/g, '').trim();
                 if (query.length > 5) {
-                    await sendAdvisorEmail(dni, query);
+                    await sendAdvisorEmail(dni, query, session.cachedClient);
                     session.menuLevel = 'main';
                     return templates.advisorTransferConfirm();
                 }
