@@ -261,8 +261,7 @@ async function runFlow(incomingText, fromJid) {
         if (session.phase === 1 && (GREETING_REGEX.test(lowText) || isQuery(text))) {
             session.phase = 2;
             if (isQuery(text)) session.pendingQuery = text;
-            const messages = templates.greetingPhase1();
-            return Array.isArray(messages) ? messages.join('\n\n') : messages;
+            return templates.greetingPhase1();
         }
 
         // Intento de identificación (números)

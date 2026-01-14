@@ -14,7 +14,7 @@
 const EMOJI_FREQUENCY = 0.8; // 70% de las veces incluir emojis
 
 // Emojis para saludos de Max
-const GREETING_EMOJIS = ['🧑‍🦱', '🤖', '📲', '😊', '😀', '🤖', '😁', '🙂', '🤞', '🖐️', '🤖', '👋', '🤟', '🤖'];
+const GREETING_EMOJIS = ['🧑‍🦱', '🖐️📲', '😊', '😀', '😁', '😊', '🤞', '🖐️', '👋', '🤟'];
 
 /**
  * Selecciona aleatoriamente una variante de un array
@@ -46,7 +46,7 @@ const templates = {
     greetingPhase1() {
         const emoji = getGreetingEmoji();
         const saludos = [
-            `Hola, Soy Max ${emoji} Tu asistente virtual de InformaPeru`,
+            `Hola, Soy Max ${emoji} Tu asistente virtual 🤖 de InformaPeru`,
             `Hola! Soy Max ${emoji} tu asistente de InformaPeru`,
             `Bienvenido a InformaPeru ${emoji} Soy Max, tu asistente virtual`,
             `Hola! Te saluda Max de InformaPeru ${emoji}`
@@ -200,19 +200,18 @@ const templates = {
     },
 
     debtSummaryPart1(clientName, saldoCapital, saldoCuota, diasAtraso) {
-        return `💰Su Saldo Capital es: S/ ${saldoCapital}
-💸Próxima cuota es: S/ ${saldoCuota}
-🗓️Tiene ${diasAtraso} días de atraso.
-
-🧑‍⚖️Agradeceremos que se ponga al día para evitar interés moratorio.`;
+        return `💰Tu *Saldo Capital* al día de hoy es: S/ ${saldoCapital}
+💸Tu *Cuota* a pagar al día de hoy es: S/ ${saldoCuota}
+🗓️Tienes *${diasAtraso} días de atraso.*`;
     },
 
     debtSummaryPart2() {
-        return `💳🤳Puedes pagar tus cuentas de Caja Huancayo en sus agencias🏬, *usando Yape(buscando "Caja Huancayo" en pagos de servicios con tu código de crédito)*, en agentes *KasNet*🏦, y através de otros bancos como *BCP, BBVA, Scotiabank e Interbank*, o en *tiendas como🏪 Tambo+.* También puedes usar la *Caja Virtual o la App móvil de Caja Huancayo* para pagos de servicios y créditos.`;
+        return `🧑‍⚖️Agradeceremos que se ponga al día para evitar interés moratorio.
+💳🤳Puedes pagar tus cuentas de Caja Huancayo en sus agencias🏬, usando Yape(buscando "Caja Huancayo" en pagos de servicios con tu código de crédito), en agentes KasNet🏦, y através de otros bancos como BCP, BBVA, Scotiabank e Interbank, o en tiendas como🏪 Tambo+. También puedes usar la Caja Virtual o la App móvil de Caja Huancayo para pagos de servicios y créditos.`;
     },
 
     debtSummaryPart3(clientName) {
-        return `¡Muchas gracias ${clientName}, que tenga buen día! 🎆`;
+        return `¡Muchas gracias, que tenga buen día! 🎆`;
     },
 
     /**
